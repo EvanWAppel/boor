@@ -9,34 +9,43 @@ deliberately **infra-independent**, so none of it is blocked by these — but th
 next layer (persistence, API, auth, the web app) can't start until the
 🔴 blockers are resolved.
 
+**Update (2026-08-14):** the three 🔴 blockers (D-01/D-02/D-03) are **RESOLVED** —
+see below. Locked architecture: a **single Railway project** hosting the Next.js
+web app (Node server), the FastAPI Python service, and Railway Postgres,
+co-located. **Vercel is dropped.** The Python service **owns all data** (BFF):
+it's the only thing that touches Postgres; Next.js is pure UI calling the service
+over HTTP/WS. Realtime is **self-hosted WebSockets on the service**. Auth is
+**Clerk** (provisioned directly at clerk.com), with the service verifying Clerk
+JWTs via JWKS on every HTTP/WS call.
+
 ---
 
-## 🔴 Blocking the next layer (resolve first)
+## ✅ Resolved 2026-08-14 (were the 🔴 blockers)
 
-### D-02 — Datastore + hosting for the Python service
-**Why it matters:** everything persistent (characters, campaigns, session logs,
-personality profiles) waits on this. It also decides where the Python service
-runs.
-- Datastore: managed Postgres (e.g. Neon via Vercel Marketplace) is the default
-  lean choice; confirm or pick another.
-- Where does the Python service run? (Vercel Python Functions / Fluid Compute,
-  vs. a separate host like Fly/Render/Railway.) This affects latency to the
-  Next.js app and how realtime is wired.
-- **Needed for:** DATA-01/03/04/05/06, and the persistence half of DATA-02.
+### D-02 — Datastore + hosting for the Python service → **Railway + Railway Postgres, BFF**
+- **Hosting:** Python service runs on **Railway** (always-on long-running host).
+- **Datastore:** **Railway Postgres, co-located** with the service — lowest
+  latency for the thing that does all the game logic, one provider, one bill.
+- **Data topology:** **service-owns-all-data (BFF)** — the Python service is the
+  only thing that touches Postgres and holds the domain logic; Next.js is pure
+  UI + calls the service over HTTP/WS.
+- The Next.js web app also runs on Railway (Node server); **Vercel is dropped**.
+- **Unblocks:** DATA-01/03/04/05/06, and the persistence half of DATA-02.
 
-### D-03 — Auth provider
-**Why it matters:** invite-only friends release needs accounts + campaign
-invites before anyone can play.
-- Options: Clerk (native Vercel Marketplace, fastest), Auth0, or roll-your-own.
-- **Needed for:** AUTH-01/02/03.
+### D-03 — Auth provider → **Clerk**
+- **Clerk**, provisioned **directly at clerk.com** (not Vercel Marketplace,
+  since Vercel is gone). Handles UI + invite-only (allowlist/invitations).
+- Next.js gets the Clerk session; the **Python service verifies Clerk JWTs via
+  Clerk's JWKS endpoint** on every HTTP/WS call — the service authenticates
+  independently and never trusts Next.js blindly (required by the BFF split).
+- **Unblocks:** AUTH-01/02/03.
 
-### D-01 — Realtime transport
-**Why it matters:** the live synchronous table (shared map/tokens/dice/chat)
-needs low-latency multi-client sync.
-- Options: raw WebSockets on the Python service, a managed realtime service
-  (e.g. Ably/Pusher/Supabase Realtime), or Vercel-native primitives.
-- Interacts with **D-02** (where the service runs constrains this).
-- **Needed for:** VTT-01 and everything in Phase 1's live table.
+### D-01 — Realtime transport → **self-hosted WebSockets on the service**
+- **Self-hosted WebSockets** on the FastAPI service (viable because Railway is
+  always-on). No managed realtime dependency; fits a few concurrent friend
+  tables. We own reconnection/presence — keep it behind a clean interface so
+  it's swappable if we ever outgrow it.
+- **Unblocks:** VTT-01 and everything in Phase 1's live table.
 
 ---
 

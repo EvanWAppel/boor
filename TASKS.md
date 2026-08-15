@@ -16,15 +16,15 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/decision 
 - [x] SETUP-02 — Scaffold Python AI/game service in `boor/service` (uv, pytest, ruff, ty; FastAPI `boor_service.api` exposes dice/checks/saves/combat over HTTP, 15 tests green)
 - [ ] SETUP-03 — Wire CI (lint + typecheck + tests) for both packages
 - [ ] SETUP-04 — Local dev harness: run web + service together; env/secrets handling
-- [ ] SETUP-05 — Decide + provision hosting (Vercel for web; hosting for Python service)
+- [ ] SETUP-05 — Provision hosting: single Railway project (Next.js Node app + FastAPI service + Postgres). *(Decided: all-Railway, Vercel dropped — D-02)*
 
 ### Data model & persistence
-- [ ] DATA-01 — Core schema: users, campaigns, memberships/invites
+- [x] DATA-01 — Core schema: users, campaigns, memberships/invites — `boor_service.db` (SQLAlchemy 2.0 async models + repository w/ invite-accept invariants; 12 tests green on ephemeral Postgres via testcontainers)
 - [~] DATA-02 — Character model: `boor_service.character.Character` — abilities, skills, saves, derived stats (AC, initiative, passive perception), roll helpers, composed HP. **Inventory/spells/features + persistence TBD** (persistence blocked on D-02)
 - [ ] DATA-03 — Session model: session records, turn/event log, story log
 - [ ] DATA-04 — Personality-profile + standing-instructions model (per character)
-- [ ] DATA-05 — Choose + provision datastore (Postgres via Marketplace) + object storage for maps/assets
-- [ ] DATA-06 — Migrations + seed data for local testing
+- [ ] DATA-05 — Provision Railway Postgres (co-located w/ service) + object storage for maps/assets. *(Decided: Railway Postgres — D-02)*
+- [~] DATA-06 — Alembic wired (async, reads `DATABASE_URL`); initial migration for the DATA-01 schema, verified reversible (enum types managed explicitly). **Seed data for local dev still TBD.**
 
 ### Auth & access (invite-only)
 - [ ] AUTH-01 — Accounts + login (pick provider; invite-only)
@@ -105,7 +105,11 @@ De-risk early with a thin prototype before polishing.
 
 ## Open decisions to resolve early (`[!]`)
 See **`DECISIONS.md`** for full context on each.
-- [!] D-02 — 🔴 Datastore + hosting for the Python service (blocks all persistence)
-- [!] D-03 — 🔴 Auth provider (blocks accounts/invites)
-- [!] D-01 — 🔴 Realtime transport (blocks the live table)
+- [x] D-02 — ✅ Railway (service) + Railway Postgres, co-located; service-owns-all-data (BFF)
+- [x] D-03 — ✅ Clerk (direct at clerk.com); service verifies Clerk JWTs via JWKS
+- [x] D-01 — ✅ Self-hosted WebSockets on the FastAPI service
 - [!] D-04 — 🟡 How minimal is "minimal VTT" for MILE-1 (resist scope creep)
+
+**Locked architecture (2026-08-14):** single Railway project — Next.js (Node) +
+FastAPI service + Railway Postgres, co-located; Vercel dropped. Service owns all
+data; Next.js is pure UI over HTTP/WS. Realtime = self-hosted WS. Auth = Clerk.
