@@ -65,3 +65,20 @@ error message; missing/mistyped fields return 422.
 - `boor_service.db` — persistence (DATA-01): async models (users, campaigns,
   memberships, invites), session factory, and a repository enforcing the
   campaign/invite invariants. Migrations in `migrations/` (DATA-06).
+- `boor_service.ai` — the AI stand-in (Phase 2 core bet). `guardrails` is a pure,
+  tested refusal layer (`check_action`); `standin` turns persona + red-lines +
+  timeline into a Claude tool call, gated by the guardrail and adjudicated by the
+  rules engine (LLM reasons, engine rolls), then logged with AI attribution.
+- `boor_service.evals` — believability/correctness eval harness for the stand-in.
+
+## Evaluating the stand-in
+
+Scored on mechanical validity, red-line adherence, and LLM-as-judge persona
+fidelity. Needs `ANTHROPIC_API_KEY`; exits non-zero on any hard-grade failure.
+
+```bash
+uv run python -m boor_service.evals          # prints a scorecard, writes evals-scorecard.json
+BOOR_LANGSMITH=1 uv run python -m boor_service.evals   # + LangSmith tracing (install langsmith)
+```
+
+The stand-in's live model test is opt-in: `BOOR_LIVE_AI=1 uv run pytest -k live`.

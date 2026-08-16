@@ -68,7 +68,7 @@ De-risk early with a thin prototype before polishing.
 - [x] AI-08 — Attribution: every stand-in action is persisted with `ai_generated=True` on the `SessionEvent` (incl. refusals), so the timeline clearly marks AI-controlled actions.
 - [ ] AI-09 — Per-player post-session recap ("here's what your character did")
 - [ ] AI-10 — Profile learning: refine persona from that character's session history over time
-- [ ] AI-11 — Thin prototype + friends playtest of stand-in believability (validate the bet)
+- [~] AI-11 — Thin prototype + friends playtest of stand-in believability (validate the bet). **Eval harness built** (`boor_service.evals`): scripted scenarios graded on mechanical validity, red-line adherence, and LLM-as-judge persona fidelity → scorecard (`python -m boor_service.evals`). **Live friends playtest still pending.**
 - [ ] MILE-2 — **Milestone:** a session runs with an absent player, AI covers, group is satisfied
 
 ## Phase 3 — AI DM & swappable DM
@@ -99,7 +99,7 @@ De-risk early with a thin prototype before polishing.
 - [ ] X-01 — Observability + logging (per CLAUDE.md: logging to help AI debug)
 - [ ] X-02 — AI cost/latency monitoring (AI Gateway usage)
 - [ ] X-03 — Trust & safety: red-line enforcement audits; player feedback loop
-- [ ] X-04 — Success-metric instrumentation: sessions-saved, believability ratings, retention
+- [~] X-04 — Success-metric instrumentation: sessions-saved, believability ratings, retention. **Stand-in believability scorecard exists** (`boor_service.evals`, optional LangSmith tracing). Session/retention metrics still TBD.
 
 ---
 
