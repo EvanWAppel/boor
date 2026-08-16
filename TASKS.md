@@ -59,11 +59,11 @@ Goal: mark a player absent → AI plays their character believably, within limit
 De-risk early with a thin prototype before polishing.
 
 - [ ] AI-01 — Personality questionnaire UI + profile capture (goals, quirks, voice, risk tolerance, relationships)
-- [ ] AI-02 — Standing instructions / red-lines model + editor ("never let me die if avoidable", etc.)
+- [~] AI-02 — Standing instructions / red-lines model + editor — structured `RedLine` model built in `boor_service.ai.guardrails` (5 categories). **Persistence (DATA-04) + editor UI still TBD.**
 - [ ] AI-03 — Mark-player-absent flow; hand character control to AI for the session
 - [ ] AI-04 — Stand-in reasoning: persona + standing instructions + game state → in-character action (Claude via AI SDK/Gateway)
 - [ ] AI-05 — AI acts on its turn in real time: moves token, declares action, rolls via rules engine, speaks in chat
-- [ ] AI-06 — Respect red-lines / autonomy bounds; refuse/avoid forbidden actions
+- [~] AI-06 — Respect red-lines / autonomy bounds; refuse/avoid forbidden actions — pure enforcement layer `boor_service.ai.guardrails.check_action` (Allowed | Refused), 15 tests, one per red-line category. **Wiring into the stand-in loop pending (AI-04/05).**
 - [ ] AI-07 — "AI is thinking" UX + latency budget so it never stalls the live table
 - [ ] AI-08 — Attribution: log clearly marks AI-controlled actions
 - [ ] AI-09 — Per-player post-session recap ("here's what your character did")
