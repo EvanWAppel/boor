@@ -61,11 +61,11 @@ De-risk early with a thin prototype before polishing.
 - [ ] AI-01 — Personality questionnaire UI + profile capture (goals, quirks, voice, risk tolerance, relationships)
 - [~] AI-02 — Standing instructions / red-lines model + editor — structured `RedLine` model built in `boor_service.ai.guardrails` (5 categories). **Persistence (DATA-04) + editor UI still TBD.**
 - [ ] AI-03 — Mark-player-absent flow; hand character control to AI for the session
-- [ ] AI-04 — Stand-in reasoning: persona + standing instructions + game state → in-character action (Claude via AI SDK/Gateway)
-- [ ] AI-05 — AI acts on its turn in real time: moves token, declares action, rolls via rules engine, speaks in chat
-- [~] AI-06 — Respect red-lines / autonomy bounds; refuse/avoid forbidden actions — pure enforcement layer `boor_service.ai.guardrails.check_action` (Allowed | Refused), 15 tests, one per red-line category. **Wiring into the stand-in loop pending (AI-04/05).**
+- [x] AI-04 — Stand-in reasoning: `boor_service.ai.standin.decide_action` — persona + standing instructions + game state → Claude (`claude-opus-4-8`, adaptive thinking) structured tool call. Tools wrap the rules engine (LLM reasons, engine adjudicates); every action gated by `check_action` before dispatch. Model-mocked unit tests + env-gated live test.
+- [~] AI-05 — `act_on_turn` declares the action, rolls via the rules engine, and appends it to the timeline (AI-attributed). **Real-time transport + token movement UI pending (needs VTT-01).**
+- [x] AI-06 — Respect red-lines / autonomy bounds; refuse/avoid forbidden actions — pure enforcement layer `boor_service.ai.guardrails.check_action` (Allowed | Refused), 15 tests. Wired into `decide_action`: every proposed action is gated *before* the engine rolls; refusals are logged, not executed.
 - [ ] AI-07 — "AI is thinking" UX + latency budget so it never stalls the live table
-- [ ] AI-08 — Attribution: log clearly marks AI-controlled actions
+- [x] AI-08 — Attribution: every stand-in action is persisted with `ai_generated=True` on the `SessionEvent` (incl. refusals), so the timeline clearly marks AI-controlled actions.
 - [ ] AI-09 — Per-player post-session recap ("here's what your character did")
 - [ ] AI-10 — Profile learning: refine persona from that character's session history over time
 - [ ] AI-11 — Thin prototype + friends playtest of stand-in believability (validate the bet)
