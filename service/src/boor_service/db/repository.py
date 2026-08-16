@@ -12,16 +12,22 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from boor_service.db.models import (
+    STORY_KINDS,
     Campaign,
+    EventKind,
+    GameSession,
     Invite,
     InviteStatus,
     Membership,
     MembershipRole,
+    SessionEvent,
+    SessionStatus,
     User,
 )
 
@@ -106,3 +112,87 @@ async def accept_invite(
     await session.flush()
     logger.info("user %s accepted invite %s", user.id, invite.id)
     return membership
+
+
+async def create_session(
+    session: AsyncSession,
+    *,
+    campaign: Campaign,
+    title: str | None = None,
+    status: SessionStatus = SessionStatus.scheduled,
+) -> GameSession:
+    """Create a play session for ``campaign``.
+
+    A session created directly as ``active`` gets its ``started_at`` stamped.
+    """
+    game_session = GameSession(campaign_id=campaign.id, title=title, status=status)
+    if status is SessionStatus.active:
+        game_session.started_at = datetime.now(UTC)
+    session.add(game_session)
+    await session.flush()
+    logger.info("created session %s for campaign %s", game_session.id, campaign.id)
+    return game_session
+
+
+async def append_event(
+    session: AsyncSession,
+    *,
+    game_session: GameSession,
+    kind: EventKind,
+    actor: User | None = None,
+    actor_label: str | None = None,
+    body: str | None = None,
+    payload: dict[str, Any] | None = None,
+    ai_generated: bool = False,
+) -> SessionEvent:
+    """Append an entry to a session's timeline, assigning the next ``seq``.
+
+    ``seq`` is ``max(seq) + 1`` for the session (starting at 1). The unique
+    constraint on ``(session_id, seq)`` guards against a racing double-append.
+    """
+    next_seq = (
+        await session.execute(
+            select(func.coalesce(func.max(SessionEvent.seq), 0)).where(
+                SessionEvent.session_id == game_session.id
+            )
+        )
+    ).scalar_one() + 1
+    event = SessionEvent(
+        session_id=game_session.id,
+        seq=next_seq,
+        kind=kind,
+        actor_user_id=actor.id if actor is not None else None,
+        actor_label=actor_label,
+        body=body,
+        payload=payload if payload is not None else {},
+        ai_generated=ai_generated,
+    )
+    session.add(event)
+    await session.flush()
+    return event
+
+
+async def end_session(
+    session: AsyncSession, *, game_session: GameSession
+) -> GameSession:
+    """Mark a session ended and stamp ``ended_at``."""
+    game_session.status = SessionStatus.ended
+    game_session.ended_at = datetime.now(UTC)
+    await session.flush()
+    logger.info("ended session %s", game_session.id)
+    return game_session
+
+
+async def story_log(
+    session: AsyncSession, *, game_session: GameSession
+) -> list[SessionEvent]:
+    """The narrative subset of a session's timeline, in order (the 'story log')."""
+    result = await session.execute(
+        select(SessionEvent)
+        .where(
+            SessionEvent.session_id == game_session.id,
+            SessionEvent.kind.in_(STORY_KINDS),
+        )
+        .order_by(SessionEvent.seq)
+    )
+    return list(result.scalars().all())

@@ -21,7 +21,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/decision 
 ### Data model & persistence
 - [x] DATA-01 — Core schema: users, campaigns, memberships/invites — `boor_service.db` (SQLAlchemy 2.0 async models + repository w/ invite-accept invariants; 12 tests green on ephemeral Postgres via testcontainers)
 - [~] DATA-02 — Character model: `boor_service.character.Character` — abilities, skills, saves, derived stats (AC, initiative, passive perception), roll helpers, composed HP. **Inventory/spells/features + persistence TBD** (persistence blocked on D-02)
-- [ ] DATA-03 — Session model: session records, turn/event log, story log
+- [x] DATA-03 — Session model: `GameSession` + unified ordered `SessionEvent` timeline (typed kinds, JSON payload, prose body, AI-attribution flag); story log = narrative subset via query. `repository` helpers + 13 tests; migration `67d54ac429fa`. *(Design: unified timeline, not separate event/story tables.)*
 - [ ] DATA-04 — Personality-profile + standing-instructions model (per character)
 - [ ] DATA-05 — Provision Railway Postgres (co-located w/ service) + object storage for maps/assets. *(Decided: Railway Postgres — D-02)*
 - [~] DATA-06 — Alembic wired (async, reads `DATABASE_URL`); initial migration for the DATA-01 schema, verified reversible (enum types managed explicitly). **Seed data for local dev still TBD.**

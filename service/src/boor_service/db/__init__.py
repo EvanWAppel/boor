@@ -9,22 +9,32 @@ from __future__ import annotations
 
 from boor_service.db.base import Base
 from boor_service.db.models import (
+    STORY_KINDS,
     Campaign,
+    EventKind,
+    GameSession,
     Invite,
     InviteStatus,
     Membership,
     MembershipRole,
+    SessionEvent,
+    SessionStatus,
     User,
 )
 from boor_service.db.session import get_engine, get_sessionmaker
 
 __all__ = [
+    "STORY_KINDS",
     "Base",
     "Campaign",
+    "EventKind",
+    "GameSession",
     "Invite",
     "InviteStatus",
     "Membership",
     "MembershipRole",
+    "SessionEvent",
+    "SessionStatus",
     "User",
     "get_engine",
     "get_sessionmaker",
