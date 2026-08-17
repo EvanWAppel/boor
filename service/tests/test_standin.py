@@ -1,4 +1,4 @@
-"""Tests for the AI stand-in slice (RECRUITER-PRIMER.md #1).
+"""Tests for the AI stand-in slice.
 
 The model is mocked in unit tests (a fake client returning canned tool calls),
 so these are fast and deterministic and assert the two things that matter: the

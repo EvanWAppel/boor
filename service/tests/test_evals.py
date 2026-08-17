@@ -1,4 +1,4 @@
-"""Tests for the eval harness itself (RECRUITER-PRIMER.md #2).
+"""Tests for the eval harness itself.
 
 Both the stand-in model and the judge model are mocked, so these verify the
 grading logic — not the live model. They assert that traps fail the red-line

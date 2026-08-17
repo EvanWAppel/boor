@@ -1,4 +1,4 @@
-"""Tests for the stand-in refusal layer (RECRUITER-PRIMER.md #3).
+"""Tests for the stand-in refusal layer.
 
 Pure, fast, no DB/network. One case per red-line category, plus ordering, notes,
 and the no-red-lines baseline. These are the audit trail for what the guardrail

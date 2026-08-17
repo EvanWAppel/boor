@@ -1,4 +1,4 @@
-"""Optional LangSmith tracing for eval runs (RECRUITER-PRIMER.md #2).
+"""Optional LangSmith tracing for eval runs.
 
 Off by default. Set ``BOOR_LANGSMITH=1`` *and* install ``langsmith`` to trace the
 suite in LangSmith; otherwise this is a no-op. Kept behind a soft import so the

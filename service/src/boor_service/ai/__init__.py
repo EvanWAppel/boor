@@ -1,6 +1,6 @@
 """AI stand-in layer for boor.
 
-The core bet (see ``../DECISIONS.md`` and ``RECRUITER-PRIMER.md``): a bounded LLM
+The core bet (see ``README.md`` for the full design): a bounded LLM
 actor that reasons about the game, but whose *actions are adjudicated by the
 deterministic rules engine* — the LLM never invents a die result. Every proposed
 action is validated against the character's standing red lines *before* dispatch

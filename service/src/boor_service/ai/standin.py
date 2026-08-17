@@ -1,6 +1,6 @@
 """AI stand-in reasoning: persona + game state -> guarded, engine-adjudicated action.
 
-The make-or-break slice (RECRUITER-PRIMER.md #1). Given a character, its persona +
+The make-or-break slice of the agent. Given a character, its persona +
 standing red lines, and the current session timeline, Claude reasons about the
 scene and proposes its next in-character action **as a structured tool call**. The
 tools wrap the deterministic rules engine — the model never invents a die result;

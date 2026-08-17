@@ -1,4 +1,4 @@
-"""Render a scorecard as a printed table and JSON (RECRUITER-PRIMER.md #2)."""
+"""Render a scorecard as a printed table and JSON."""
 
 from __future__ import annotations
 

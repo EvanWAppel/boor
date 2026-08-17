@@ -6,7 +6,7 @@ are structured (not free text) so the check is auditable and testable without a
 model in the loop; the natural-language phrasing a player wrote lives in
 ``RedLine.note`` and is surfaced in the refusal reason.
 
-Design (per RECRUITER-PRIMER.md #3): responsible-AI governance as a first-class,
+Design goal: responsible-AI governance as a first-class,
 tested component. The stand-in loop routes every action here and logs refusals to
 the session timeline (that wiring lives in the stand-in slice, not this module).
 """

@@ -1,4 +1,4 @@
-"""Graders that score a stand-in decision against a scenario (RECRUITER-PRIMER.md #2).
+"""Graders that score a stand-in decision against a scenario.
 
 Two deterministic graders (mechanical validity, red-line adherence) assert hard;
 the LLM-as-judge persona grader scores against a threshold. Judge failures surface

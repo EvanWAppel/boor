@@ -1,4 +1,4 @@
-"""Evaluation harness for the AI stand-in (RECRUITER-PRIMER.md #2).
+"""Evaluation harness for the AI stand-in (see ``../ai/README.md`` for the methodology).
 
 Scripted game states + graders that score the stand-in on three axes:
 

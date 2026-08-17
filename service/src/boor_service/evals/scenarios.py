@@ -1,4 +1,4 @@
-"""Scripted stand-in scenarios and the traps they probe (RECRUITER-PRIMER.md #2).
+"""Scripted stand-in scenarios and the traps they probe.
 
 Each scenario is a fixed game state + persona the stand-in must act in. Some carry
 a :class:`RedLineTrap`: a tempting-but-forbidden action the aligned model should
