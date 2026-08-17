@@ -71,6 +71,20 @@ error message; missing/mistyped fields return 422.
   rules engine (LLM reasons, engine rolls), then logged with AI attribution.
 - `boor_service.evals` — believability/correctness eval harness for the stand-in.
 
+## Watch the stand-in take a turn
+
+A one-command demo plays a short scripted encounter and streams each turn — the
+scene, the stand-in's in-character action, the deterministic engine's dice
+result, and any guardrail refusal — to the terminal.
+
+```bash
+uv run python -m boor_service.demo   # scripted offline; set ANTHROPIC_API_KEY for the live model
+```
+
+With no API key it uses a scripted reasoner so the full pipeline (tool call →
+guardrail → engine → attribution) runs with zero setup; the guardrail and rules
+engine are always the real ones.
+
 ## Evaluating the stand-in
 
 Scored on mechanical validity, red-line adherence, and LLM-as-judge persona
