@@ -27,6 +27,8 @@ from boor_service.ai import (
     Refused,
     check_action,
 )
+from boor_service.ai.standin import build_standin_context
+from boor_service.character import Character as CharacterSheet
 from boor_service.db.models import (
     Campaign,
     Character,
@@ -270,6 +272,75 @@ async def test_deleting_campaign_cascades_to_characters(
         )
     ).scalars().all()
     assert remaining == []
+
+
+async def test_build_standin_context_from_persisted_record(
+    session: AsyncSession, make_user: UserFactory
+) -> None:
+    """The bridge: persisted sheet + profile + red lines -> a StandInContext."""
+    owner = await make_user()
+    campaign = await _campaign(session, owner)
+    sheet = CharacterSheet(
+        name="Vex",
+        level=5,
+        abilities={"str": 8, "dex": 18, "con": 14, "int": 12, "wis": 13, "cha": 16},
+        max_hp=38,
+        skill_proficiencies=frozenset({"stealth", "perception"}),
+        skill_expertise=frozenset({"stealth"}),
+    )
+    character = await create_character(
+        session, campaign=campaign, name="Vex", level=5, sheet=sheet.to_sheet()
+    )
+    await set_personality_profile(
+        session,
+        character=character,
+        persona="A sly ranger who trusts no one.",
+        standing_instructions="Scout ahead; avoid melee.",
+        risk_tolerance=RiskTolerance.cautious,
+    )
+    await add_red_line(
+        session,
+        character=character,
+        red_line=RedLine(kind=RedLineKind.no_attacking_allies, note="never hit friends"),
+    )
+
+    game_state = GameState(actor_id="vex_01")
+    context = await build_standin_context(
+        session, character=character, game_state=game_state
+    )
+
+    assert context.character_name == "Vex"
+    assert context.persona == "A sly ranger who trusts no one."
+    assert "Scout ahead" in context.standing_instructions
+    assert "cautiously" in context.standing_instructions.lower()  # risk tolerance folded in
+    assert "DEX 18 (+4)" in context.character_sheet
+    assert "Expertise: stealth" in context.character_sheet
+    assert [rl.kind for rl in context.red_lines] == [RedLineKind.no_attacking_allies]
+    assert context.game_state is game_state
+
+
+async def test_build_standin_context_without_profile(
+    session: AsyncSession, make_user: UserFactory
+) -> None:
+    owner = await make_user()
+    campaign = await _campaign(session, owner)
+    sheet = CharacterSheet(
+        name="Mook",
+        level=1,
+        abilities={"str": 10, "dex": 10, "con": 10, "int": 10, "wis": 10, "cha": 10},
+        max_hp=8,
+    )
+    character = await create_character(
+        session, campaign=campaign, name="Mook", sheet=sheet.to_sheet()
+    )
+
+    context = await build_standin_context(
+        session, character=character, game_state=GameState(actor_id="mook_01")
+    )
+
+    assert context.persona == ""
+    assert context.standing_instructions == ""
+    assert context.red_lines == ()
 
 
 async def test_deleting_player_nulls_character_owner(

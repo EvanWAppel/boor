@@ -5,16 +5,19 @@ proficiencies, and level, plus the derived stats and the roll helpers that
 delegate to :mod:`boor_service.mechanics`. HP state is composed via a
 :class:`~boor_service.combat.Combatant`.
 
-No persistence here — how a Character is stored/loaded depends on the datastore
-decision (see ``../DECISIONS.md``). This model is deliberately independent of
-that choice so it stays reworkable.
+No datastore coupling here: :meth:`Character.to_sheet` / :meth:`Character.from_sheet`
+are pure dict transforms (they serialize the *definitional* inputs, not live combat
+state), so the model stays independent of how it's stored. The DB layer persists
+the resulting dict as the ``characters.sheet`` JSONB blob (DATA-02).
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
+from typing import Any
 
 from boor_service.combat import Combatant
 from boor_service.dice import SupportsRandint
@@ -96,6 +99,51 @@ class Character:
             resistances=self.resistances,
             immunities=self.immunities,
             vulnerabilities=self.vulnerabilities,
+        )
+
+    # --- persistence (pure dict transforms, no datastore coupling) ---------
+
+    def to_sheet(self) -> dict[str, Any]:
+        """A JSON-safe dict of this character's definitional inputs (DATA-02).
+
+        Serializes what *defines* the sheet, not live combat state — current/temp
+        HP live in the session, not the character record. Sets become sorted lists
+        so the blob is stable. Round-trips with :meth:`from_sheet`.
+        """
+        return {
+            "name": self.name,
+            "level": self.level,
+            "abilities": dict(self.abilities),
+            "max_hp": self.max_hp,
+            "skill_proficiencies": sorted(self.skill_proficiencies),
+            "skill_expertise": sorted(self.skill_expertise),
+            "save_proficiencies": sorted(self.save_proficiencies),
+            "base_armor_class": self.base_armor_class,
+            "resistances": sorted(self.resistances),
+            "immunities": sorted(self.immunities),
+            "vulnerabilities": sorted(self.vulnerabilities),
+        }
+
+    @classmethod
+    def from_sheet(cls, sheet: Mapping[str, Any]) -> Character:
+        """Reconstruct a Character from a :meth:`to_sheet` dict (the persisted JSONB).
+
+        Validation (levels, ability completeness, expertise-requires-proficiency)
+        is re-run by ``__post_init__``, so a malformed blob raises rather than
+        yielding a silently-broken sheet.
+        """
+        return cls(
+            name=sheet["name"],
+            level=sheet["level"],
+            abilities=dict(sheet["abilities"]),
+            max_hp=sheet["max_hp"],
+            skill_proficiencies=frozenset(sheet.get("skill_proficiencies", ())),
+            skill_expertise=frozenset(sheet.get("skill_expertise", ())),
+            save_proficiencies=frozenset(sheet.get("save_proficiencies", ())),
+            base_armor_class=sheet.get("base_armor_class"),
+            resistances=frozenset(sheet.get("resistances", ())),
+            immunities=frozenset(sheet.get("immunities", ())),
+            vulnerabilities=frozenset(sheet.get("vulnerabilities", ())),
         )
 
     # --- derived stats -----------------------------------------------------

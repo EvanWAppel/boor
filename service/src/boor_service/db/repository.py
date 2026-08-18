@@ -171,6 +171,19 @@ async def set_personality_profile(
     return profile
 
 
+async def personality_profile_for(
+    session: AsyncSession, *, character: Character
+) -> PersonalityProfile | None:
+    """A character's personality profile, or ``None`` if none has been set yet."""
+    return (
+        await session.execute(
+            select(PersonalityProfile).where(
+                PersonalityProfile.character_id == character.id
+            )
+        )
+    ).scalar_one_or_none()
+
+
 async def add_red_line(
     session: AsyncSession, *, character: Character, red_line: RedLine
 ) -> CharacterRedLine:

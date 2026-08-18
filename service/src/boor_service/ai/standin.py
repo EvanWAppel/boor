@@ -25,8 +25,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from boor_service import mechanics
 from boor_service.ai.actions import ActionType, GameState, ProposedAction, SelfRisk
 from boor_service.ai.guardrails import RedLine, Refused, check_action
+from boor_service.character import ABILITIES
+from boor_service.character import Character as CharacterSheet
 from boor_service.db import repository
-from boor_service.db.models import EventKind, GameSession, SessionEvent
+from boor_service.db.models import Character as CharacterRow
+from boor_service.db.models import (
+    EventKind,
+    GameSession,
+    PersonalityProfile,
+    RiskTolerance,
+    SessionEvent,
+)
 from boor_service.dice import SupportsRandint
 from boor_service.mechanics import CheckResult
 
@@ -297,6 +306,84 @@ def _summarize(name: str, tool_input: dict[str, Any], engine_result: object | No
     if name == "move":
         return tool_input.get("narration", f"moves to {tool_input.get('destination', '?')}")
     return tool_input.get("narration", name)
+
+
+# --- Building context from persisted data (DATA-02/04 -> the stand-in) -------
+
+#: How each risk-tolerance setting is phrased as guidance in the prompt.
+_RISK_GUIDANCE: dict[RiskTolerance, str] = {
+    RiskTolerance.cautious: "Play cautiously; avoid unnecessary danger.",
+    RiskTolerance.balanced: "Take sensible risks appropriate to the moment.",
+    RiskTolerance.bold: "Lean into bold, decisive action.",
+    RiskTolerance.reckless: "Court danger; act with abandon.",
+}
+
+
+def render_character_sheet(sheet: CharacterSheet) -> str:
+    """A compact text rendering of a character's derived stats, for the prompt."""
+    abilities = ", ".join(
+        f"{ability.upper()} {sheet.abilities[ability]} ({sheet.ability_modifier(ability):+d})"
+        for ability in ABILITIES
+    )
+    lines = [
+        f"Level {sheet.level}, proficiency +{sheet.proficiency_bonus}",
+        (
+            f"AC {sheet.armor_class}, max HP {sheet.max_hp}, "
+            f"initiative {sheet.initiative_bonus:+d}, "
+            f"passive perception {sheet.passive_perception}"
+        ),
+        abilities,
+    ]
+    if sheet.skill_proficiencies:
+        lines.append("Proficient skills: " + ", ".join(sorted(sheet.skill_proficiencies)))
+    if sheet.skill_expertise:
+        lines.append("Expertise: " + ", ".join(sorted(sheet.skill_expertise)))
+    if sheet.save_proficiencies:
+        lines.append("Saving throws: " + ", ".join(sorted(sheet.save_proficiencies)))
+    return "\n".join(lines)
+
+
+def _standing_instructions_text(profile: PersonalityProfile | None) -> str:
+    """Fold the player's free-text guidance and risk-tolerance into one block."""
+    if profile is None:
+        return ""
+    parts: list[str] = []
+    if profile.standing_instructions:
+        parts.append(profile.standing_instructions)
+    parts.append(_RISK_GUIDANCE[profile.risk_tolerance])
+    return "\n".join(parts)
+
+
+async def build_standin_context(
+    session: AsyncSession,
+    *,
+    character: CharacterRow,
+    game_state: GameState,
+) -> StandInContext:
+    """Assemble a :class:`StandInContext` from a character's persisted record.
+
+    Reconstructs the domain sheet from the JSONB blob, loads the personality
+    profile and standing red lines, and renders the sheet text the prompt needs.
+    The live ``game_state`` (current scene) is supplied by the caller — it is not
+    part of the durable character record. A character with no profile yet still
+    yields a usable, mechanically-driven context with an empty persona.
+    """
+    sheet = CharacterSheet.from_sheet(character.sheet)
+    profile = await repository.personality_profile_for(session, character=character)
+    red_lines = await repository.red_lines_for(session, character=character)
+    if profile is None:
+        logger.warning(
+            "character %s has no personality profile; standing in with empty persona",
+            character.id,
+        )
+    return StandInContext(
+        character_name=character.name,
+        character_sheet=render_character_sheet(sheet),
+        persona=profile.persona if profile is not None else "",
+        standing_instructions=_standing_instructions_text(profile),
+        red_lines=red_lines,
+        game_state=game_state,
+    )
 
 
 # --- Timeline persistence (AI-08 attribution) -------------------------------
