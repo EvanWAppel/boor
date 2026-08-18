@@ -17,15 +17,20 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from boor_service.ai.guardrails import RedLine
 from boor_service.db.models import (
     STORY_KINDS,
     Campaign,
+    Character,
+    CharacterRedLine,
     EventKind,
     GameSession,
     Invite,
     InviteStatus,
     Membership,
     MembershipRole,
+    PersonalityProfile,
+    RiskTolerance,
     SessionEvent,
     SessionStatus,
     User,
@@ -112,6 +117,105 @@ async def accept_invite(
     await session.flush()
     logger.info("user %s accepted invite %s", user.id, invite.id)
     return membership
+
+
+async def create_character(
+    session: AsyncSession,
+    *,
+    campaign: Campaign,
+    name: str,
+    level: int = 1,
+    sheet: dict[str, Any] | None = None,
+    player: User | None = None,
+) -> Character:
+    """Create a character in ``campaign``, optionally controlled by ``player``."""
+    character = Character(
+        campaign_id=campaign.id,
+        name=name,
+        level=level,
+        sheet=sheet if sheet is not None else {},
+        player_id=player.id if player is not None else None,
+    )
+    session.add(character)
+    await session.flush()
+    logger.info("created character %s (%s) in campaign %s", character.id, name, campaign.id)
+    return character
+
+
+async def set_personality_profile(
+    session: AsyncSession,
+    *,
+    character: Character,
+    persona: str = "",
+    standing_instructions: str = "",
+    risk_tolerance: RiskTolerance = RiskTolerance.balanced,
+    traits: dict[str, Any] | None = None,
+) -> PersonalityProfile:
+    """Create or update a character's single personality profile (upsert, DATA-04)."""
+    profile = (
+        await session.execute(
+            select(PersonalityProfile).where(
+                PersonalityProfile.character_id == character.id
+            )
+        )
+    ).scalar_one_or_none()
+    if profile is None:
+        profile = PersonalityProfile(character_id=character.id)
+        session.add(profile)
+    profile.persona = persona
+    profile.standing_instructions = standing_instructions
+    profile.risk_tolerance = risk_tolerance
+    profile.traits = traits if traits is not None else {}
+    await session.flush()
+    logger.info("set personality profile for character %s", character.id)
+    return profile
+
+
+async def add_red_line(
+    session: AsyncSession, *, character: Character, red_line: RedLine
+) -> CharacterRedLine:
+    """Append a standing red line to a character, preserving evaluation order.
+
+    ``position`` is ``max(position) + 1`` (starting at 0) so the order red lines
+    were added is the order ``check_action`` evaluates them — first violation wins.
+    """
+    next_position = (
+        await session.execute(
+            select(func.coalesce(func.max(CharacterRedLine.position), -1)).where(
+                CharacterRedLine.character_id == character.id
+            )
+        )
+    ).scalar_one() + 1
+    row = CharacterRedLine(
+        character_id=character.id,
+        position=next_position,
+        kind=red_line.kind,
+        entity_ids=sorted(red_line.entity_ids),
+        action_types=sorted(action_type.value for action_type in red_line.action_types),
+        note=red_line.note,
+    )
+    session.add(row)
+    await session.flush()
+    logger.info("added red line %s to character %s", red_line.kind.value, character.id)
+    return row
+
+
+async def red_lines_for(
+    session: AsyncSession, *, character: Character
+) -> tuple[RedLine, ...]:
+    """A character's standing red lines as domain objects, in evaluation order.
+
+    The tuple is ready to hand straight to ``check_action`` /
+    :class:`~boor_service.ai.standin.StandInContext`.
+    """
+    rows = (
+        await session.execute(
+            select(CharacterRedLine)
+            .where(CharacterRedLine.character_id == character.id)
+            .order_by(CharacterRedLine.position)
+        )
+    ).scalars().all()
+    return tuple(row.as_red_line() for row in rows)
 
 
 async def create_session(

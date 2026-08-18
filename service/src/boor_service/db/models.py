@@ -29,6 +29,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from boor_service.ai.actions import ActionType
+from boor_service.ai.guardrails import RedLine, RedLineKind
 from boor_service.db.base import Base, Timestamped, UUIDPrimaryKey
 
 
@@ -54,6 +56,15 @@ class SessionStatus(enum.StrEnum):
     scheduled = "scheduled"
     active = "active"
     ended = "ended"
+
+
+class RiskTolerance(enum.StrEnum):
+    """How much danger a stand-in should court on the player's behalf (DATA-04)."""
+
+    cautious = "cautious"
+    balanced = "balanced"
+    bold = "bold"
+    reckless = "reckless"
 
 
 class EventKind(enum.StrEnum):
@@ -82,6 +93,10 @@ _ROLE_ENUM = Enum(MembershipRole, name="membership_role")
 _INVITE_STATUS_ENUM = Enum(InviteStatus, name="invite_status")
 _SESSION_STATUS_ENUM = Enum(SessionStatus, name="session_status")
 _EVENT_KIND_ENUM = Enum(EventKind, name="event_kind")
+_RISK_TOLERANCE_ENUM = Enum(RiskTolerance, name="risk_tolerance")
+# Reuses the same RedLineKind the pure checker evaluates, so persisted red lines
+# round-trip straight back into boor_service.ai.guardrails.check_action.
+_RED_LINE_KIND_ENUM = Enum(RedLineKind, name="red_line_kind")
 
 _TOKEN_BYTES = 32
 
@@ -119,6 +134,9 @@ class Campaign(UUIDPrimaryKey, Timestamped, Base):
         back_populates="campaign", cascade="all, delete-orphan"
     )
     sessions: Mapped[list[GameSession]] = relationship(
+        back_populates="campaign", cascade="all, delete-orphan"
+    )
+    characters: Mapped[list[Character]] = relationship(
         back_populates="campaign", cascade="all, delete-orphan"
     )
 
@@ -234,3 +252,100 @@ class SessionEvent(UUIDPrimaryKey, Timestamped, Base):
 
     session: Mapped[GameSession] = relationship(back_populates="events")
     actor: Mapped[User | None] = relationship()
+
+
+class Character(UUIDPrimaryKey, Timestamped, Base):
+    """A player character in a campaign (DATA-02 persistence).
+
+    Stores the durable *inputs* of a 5e sheet — name, level, and the
+    ability/proficiency data needed to reconstruct the in-memory
+    :class:`boor_service.character.Character` domain model; derived stats (AC,
+    initiative, ...) are recomputed, never persisted. ``sheet`` is a JSONB blob so
+    the rich, still-evolving domain model stays reworkable without a migration per
+    field (mirrors how :attr:`SessionEvent.payload` is stored). ``player_id`` is
+    the member who controls this character — nullable for NPCs or not-yet-claimed
+    pregens (``SET NULL`` so deleting a user doesn't delete their party).
+    """
+
+    __tablename__ = "characters"
+
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("campaigns.id", ondelete="CASCADE"), index=True
+    )
+    player_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    level: Mapped[int] = mapped_column(Integer, default=1)
+    sheet: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+
+    campaign: Mapped[Campaign] = relationship(back_populates="characters")
+    player: Mapped[User | None] = relationship()
+    profile: Mapped[PersonalityProfile | None] = relationship(
+        back_populates="character", cascade="all, delete-orphan", uselist=False
+    )
+    red_lines: Mapped[list[CharacterRedLine]] = relationship(
+        back_populates="character",
+        cascade="all, delete-orphan",
+        order_by="CharacterRedLine.position",
+    )
+
+
+class PersonalityProfile(UUIDPrimaryKey, Timestamped, Base):
+    """A character's stand-in persona and standing instructions (DATA-04).
+
+    Exactly one per character (unique ``character_id``). ``persona`` is the
+    voice/personality prose the stand-in speaks in; ``standing_instructions`` is
+    the player's free-text guidance ("play cautious, protect Pip");
+    ``risk_tolerance`` tunes how much danger the stand-in courts; ``traits`` holds
+    the structured questionnaire capture (goals, quirks, relationships, voice
+    notes — AI-01). These feed :class:`~boor_service.ai.standin.StandInContext`.
+    """
+
+    __tablename__ = "personality_profiles"
+
+    character_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("characters.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    persona: Mapped[str] = mapped_column(String, default="")
+    standing_instructions: Mapped[str] = mapped_column(String, default="")
+    risk_tolerance: Mapped[RiskTolerance] = mapped_column(
+        _RISK_TOLERANCE_ENUM, default=RiskTolerance.balanced
+    )
+    traits: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+
+    character: Mapped[Character] = relationship(back_populates="profile")
+
+
+class CharacterRedLine(UUIDPrimaryKey, Timestamped, Base):
+    """A persisted standing red line for a character's stand-in (DATA-04 / AI-02).
+
+    The DB row for a :class:`boor_service.ai.guardrails.RedLine`: ``kind`` reuses
+    the same ``RedLineKind`` enum the pure checker evaluates, and ``entity_ids`` /
+    ``action_types`` persist that kind's parameters as JSON lists. ``position``
+    preserves evaluation order — ``check_action`` is order-sensitive (first
+    violation wins), so ordering must survive a round-trip. :meth:`as_red_line`
+    rebuilds the frozen domain object the checker consumes.
+    """
+
+    __tablename__ = "character_red_lines"
+
+    character_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("characters.id", ondelete="CASCADE"), index=True
+    )
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    kind: Mapped[RedLineKind] = mapped_column(_RED_LINE_KIND_ENUM)
+    entity_ids: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    action_types: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    note: Mapped[str] = mapped_column(String, default="")
+
+    character: Mapped[Character] = relationship(back_populates="red_lines")
+
+    def as_red_line(self) -> RedLine:
+        """Rebuild the frozen domain red line that ``check_action`` evaluates."""
+        return RedLine(
+            kind=self.kind,
+            entity_ids=frozenset(self.entity_ids),
+            action_types=frozenset(ActionType(a) for a in self.action_types),
+            note=self.note,
+        )

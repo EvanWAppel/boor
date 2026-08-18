@@ -20,9 +20,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/decision 
 
 ### Data model & persistence
 - [x] DATA-01 — Core schema: users, campaigns, memberships/invites — `boor_service.db` (SQLAlchemy 2.0 async models + repository w/ invite-accept invariants; 12 tests green on ephemeral Postgres via testcontainers)
-- [~] DATA-02 — Character model: `boor_service.character.Character` — abilities, skills, saves, derived stats (AC, initiative, passive perception), roll helpers, composed HP. **Inventory/spells/features + persistence TBD** (persistence blocked on D-02)
+- [x] DATA-02 — Character model: `boor_service.character.Character` — abilities, skills, saves, derived stats (AC, initiative, passive perception), roll helpers, composed HP. **Persistence landed** — `db.models.Character` (belongs to campaign, `player_id` SET NULL for NPCs/pregens) with the sheet inputs in a JSONB `sheet` blob so the still-evolving domain model reworks without a migration per field; `repository.create_character`; migration `975c11e58f23`. *(Inventory/spells/features ride in the JSONB sheet for now, not yet first-class columns.)*
 - [x] DATA-03 — Session model: `GameSession` + unified ordered `SessionEvent` timeline (typed kinds, JSON payload, prose body, AI-attribution flag); story log = narrative subset via query. `repository` helpers + 13 tests; migration `67d54ac429fa`. *(Design: unified timeline, not separate event/story tables.)*
-- [ ] DATA-04 — Personality-profile + standing-instructions model (per character)
+- [x] DATA-04 — Personality-profile + standing-instructions model (per character) — `db.models.PersonalityProfile` (one-per-character: `persona`, `standing_instructions`, `risk_tolerance` enum, JSONB `traits` for the AI-01 questionnaire) + `CharacterRedLine` persisting structured red lines. Red lines reuse the guardrail `RedLineKind`/`ActionType` enums and round-trip *straight back into* `check_action` (`repository.red_lines_for`), so the DB and the pure checker can't drift; ordered by `position` (first-violation-wins is preserved). `repository.set_personality_profile` (upsert) + `add_red_line`; migration `975c11e58f23`; 9 tests green.
 - [ ] DATA-05 — Provision Railway Postgres (co-located w/ service) + object storage for maps/assets. *(Decided: Railway Postgres — D-02)*
 - [~] DATA-06 — Alembic wired (async, reads `DATABASE_URL`); initial migration for the DATA-01 schema, verified reversible (enum types managed explicitly). **Seed data for local dev still TBD.**
 
@@ -59,7 +59,7 @@ Goal: mark a player absent → AI plays their character believably, within limit
 De-risk early with a thin prototype before polishing.
 
 - [ ] AI-01 — Personality questionnaire UI + profile capture (goals, quirks, voice, risk tolerance, relationships)
-- [~] AI-02 — Standing instructions / red-lines model + editor — structured `RedLine` model built in `boor_service.ai.guardrails` (5 categories). **Persistence (DATA-04) + editor UI still TBD.**
+- [~] AI-02 — Standing instructions / red-lines model + editor — structured `RedLine` model built in `boor_service.ai.guardrails` (5 categories). **Persistence landed** via DATA-04 (`CharacterRedLine` + `repository.red_lines_for` round-trip to `check_action`). **Editor UI still TBD.**
 - [ ] AI-03 — Mark-player-absent flow; hand character control to AI for the session
 - [x] AI-04 — Stand-in reasoning: `boor_service.ai.standin.decide_action` — persona + standing instructions + game state → Claude (`claude-opus-4-8`, adaptive thinking) structured tool call. Tools wrap the rules engine (LLM reasons, engine adjudicates); every action gated by `check_action` before dispatch. Model-mocked unit tests + env-gated live test.
 - [~] AI-05 — `act_on_turn` declares the action, rolls via the rules engine, and appends it to the timeline (AI-attributed). **Real-time transport + token movement UI pending (needs VTT-01).**
