@@ -47,11 +47,16 @@ the project (or now, as a proposal you approve).
 
 ## 3. Web app ↔ service wiring — partly on me `[~]`
 
-- I can scaffold the Next.js side (Clerk provider, middleware, a typed API client
-  that forwards the Bearer token, a WebSocket client for the session room) **without
-  keys** — it just won't run end-to-end until Clerk (#1) is set.
-- [ ] You: confirm you want me to scaffold this now (it adds `@clerk/nextjs` and may
-      make `web` require the Clerk publishable key to fully boot).
+- **Done (no keys needed):** a Clerk-agnostic typed client for the whole BFF
+  (`web/src/lib/api.ts`) and a session-room WebSocket client (`web/src/lib/ws.ts`),
+  plus `web/.env.local.example`. They take an injected `getToken`, so they compile
+  and ship today and drop straight onto Clerk once it's set.
+- **Left (adds `@clerk/nextjs`, needs your key to boot):** `<ClerkProvider>` +
+  `clerkMiddleware`, sign-in/up pages, and passing `useAuth().getToken` into
+  `createApiClient`.
+- [ ] You: once Clerk (#1) is set, say the word and I'll wire the provider +
+      first screens. I held off adding `@clerk/nextjs` so `next build` (and CI)
+      stay green without a publishable key.
 
 ## 4. CI / GitHub (SETUP-03) — mostly on me `[~]`
 

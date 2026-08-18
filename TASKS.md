@@ -15,7 +15,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/decision 
 - [x] SETUP-01 — Next.js (App Router) web app scaffolded in `boor/web` (TS + Tailwind + ESLint, pnpm; build + lint green)
 - [x] SETUP-02 — Scaffold Python AI/game service in `boor/service` (uv, pytest, ruff, ty; FastAPI `boor_service.api` exposes dice/checks/saves/combat over HTTP, 15 tests green)
 - [x] SETUP-03 — CI wired (`.github/workflows/ci.yml`): **service** job runs ruff + ty + pytest via `uv` (testcontainers uses the runner's Docker; no service container needed); **web** job runs `pnpm lint` + `pnpm build`. Both green locally; triggers on push (main/`data-layer-foundations`) + PRs, with in-progress-run cancellation.
-- [ ] SETUP-04 — Local dev harness: run web + service together; env/secrets handling
+- [~] SETUP-04 — Local dev harness: run web + service together; env/secrets handling. **Web→service client landed**: Clerk-agnostic typed API client (`web/src/lib/api.ts`) + session-room WS client (`web/src/lib/ws.ts`) + `web/.env.local.example`. **One-command web+service runner still TBD.**
 - [ ] SETUP-05 — Provision hosting: single Railway project (Next.js Node app + FastAPI service + Postgres). *(Decided: all-Railway, Vercel dropped — D-02)*
 
 ### Data model & persistence
