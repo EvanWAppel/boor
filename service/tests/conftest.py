@@ -7,18 +7,29 @@ from __future__ import annotations
 
 import itertools
 import random
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 
+import httpx
+import jwt
 import pytest
 import pytest_asyncio
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from sqlalchemy import NullPool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.community.postgres import PostgresContainer
 
 from boor_service.api import app
+from boor_service.auth.clerk import ClerkVerifier
+from boor_service.auth.dependencies import get_verifier
 from boor_service.db.base import Base
 from boor_service.db.models import User
+from boor_service.db.session import get_session
+
+#: Issuer the test Clerk verifier trusts (see the auth fixtures below).
+CLERK_ISSUER_TEST = "https://clerk.example.test"
 
 
 @pytest.fixture
@@ -80,3 +91,93 @@ async def make_user(
         return user
 
     return _make
+
+
+# --- Clerk auth fixtures (local keypair; no network / real Clerk) -----------
+
+
+@pytest.fixture(scope="session")
+def clerk_keypair() -> tuple[str, str]:
+    """A (private_pem, public_pem) RSA pair, generated once for the test session."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+    public_pem = (
+        key.public_key()
+        .public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
+    return private_pem, public_pem
+
+
+@pytest.fixture
+def clerk_verifier(clerk_keypair: tuple[str, str]) -> ClerkVerifier:
+    """A verifier that trusts the test keypair's public key (injected resolver)."""
+    _, public_pem = clerk_keypair
+    return ClerkVerifier(
+        issuer=CLERK_ISSUER_TEST,
+        signing_key_resolver=lambda _token: public_pem,
+        audience=None,
+    )
+
+
+@pytest.fixture
+def mint_token(clerk_keypair: tuple[str, str]) -> Callable[..., str]:
+    """Factory minting Clerk-shaped RS256 JWTs signed by the test keypair."""
+    private_pem, _ = clerk_keypair
+
+    def _mint(
+        *,
+        sub: str | None = "clerk_user_1",
+        email: str | None = "user@example.com",
+        name: str | None = "User",
+        iss: str = CLERK_ISSUER_TEST,
+        exp_delta: int = 3600,
+        private_pem_override: str | None = None,
+        omit: tuple[str, ...] = (),
+    ) -> str:
+        now = int(time.time())
+        claims: dict[str, object] = {"iat": now, "exp": now + exp_delta, "iss": iss}
+        if sub is not None:
+            claims["sub"] = sub
+        if email is not None:
+            claims["email"] = email
+        if name is not None:
+            claims["name"] = name
+        for key in omit:
+            claims.pop(key, None)
+        return jwt.encode(
+            claims, private_pem_override or private_pem, algorithm="RS256", headers={"kid": "test"}
+        )
+
+    return _mint
+
+
+@pytest_asyncio.fixture
+async def auth_client(
+    session: AsyncSession, clerk_verifier: ClerkVerifier
+) -> AsyncIterator[httpx.AsyncClient]:
+    """An httpx client bound to the app, with DB + verifier overridden for tests.
+
+    ``get_session`` yields the test's single session (so writes persist across
+    requests within a test), and ``get_verifier`` returns the local-keypair
+    verifier. Pair with :func:`mint_token` to authenticate requests.
+    """
+
+    async def _session_override() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    app.dependency_overrides[get_session] = _session_override
+    app.dependency_overrides[get_verifier] = lambda: clerk_verifier
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()

@@ -28,7 +28,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/decision 
 
 ### Auth & access (invite-only)
 - [~] AUTH-01 — Accounts + login (Clerk — D-03). **Service side landed**: `boor_service.auth` verifies Clerk session JWTs against the public JWKS (RS256, no Clerk secret server-side) via an injectable signing-key resolver, and `repository.sync_user` mirrors the identity locally on first login (email required — Clerk JWT template must expose it). `get_current_user` FastAPI dep + guarded `/me`. **Web-side Clerk sign-in UI + `CLERK_ISSUER`/`CLERK_JWKS_URL` env provisioning still TBD.**
-- [~] AUTH-02 — Campaign owner invites players by link/email — invite→accept invariants live in `repository` (DATA-01) and are now covered by the auth role tests. **Invite-send + accept UI/endpoints still TBD.**
+- [~] AUTH-02 — Campaign owner invites players by link/email — invite→accept invariants live in `repository` (DATA-01); **HTTP endpoints landed**: `POST /campaigns/{id}/invites` (DM-only, returns token) + `POST /invites/{token}/accept`. **Invite-send/accept UI (email delivery of the link) still TBD.**
 - [x] AUTH-03 — Roles: DM vs player; per-campaign membership — `auth.dependencies.current_membership` (403 for non-members) + `require_dm` (403 for players); wired into example routes (`GET /campaigns/{id}/members` any-member, `DELETE …/members/{uid}` DM-only). Tests cover owner=DM, non-member, player-refused, DM-allowed.
 
 ### Rules engine (foundational)

@@ -18,20 +18,26 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from boor_service import mechanics
+from boor_service.ai.actions import ActionType
+from boor_service.ai.guardrails import RedLine, RedLineKind
 from boor_service.auth.dependencies import (
+    CharacterForEditor,
+    CharacterForMember,
     CurrentMembership,
     CurrentUser,
     RequireDM,
     SessionDep,
 )
+from boor_service.character import Character as CharacterSheet
 from boor_service.db import repository
-from boor_service.db.models import MembershipRole
+from boor_service.db.models import Campaign, Character, MembershipRole, RiskTolerance
 from boor_service.dice import RollResult, roll, roll_d20
 
 logger = logging.getLogger(__name__)
@@ -225,7 +231,10 @@ def combat_damage(body: DamageIn) -> RollOut:
     return _roll_out(mechanics.roll_damage(body.notation, critical=body.critical))
 
 
-# --- Authenticated campaign reads (Clerk, AUTH-03) -------------------------
+# --- Authenticated BFF surface (Clerk, AUTH-03; DATA-01/02/04) --------------
+# The service owns all data (D-02): every campaign/character route is gated by the
+# auth dependencies, which resolve a Clerk token to a mirrored user and enforce
+# per-campaign roles. Each handler is thin over boor_service.db.repository.
 
 
 class MeOut(BaseModel):
@@ -240,10 +249,122 @@ class MemberOut(BaseModel):
     display_name: str | None
 
 
+class CampaignCreateIn(BaseModel):
+    name: str
+
+
+class CampaignOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    owner_id: uuid.UUID
+    my_role: MembershipRole
+
+
+class InviteCreateIn(BaseModel):
+    email: str
+    role: MembershipRole = MembershipRole.player
+
+
+class InviteOut(BaseModel):
+    id: uuid.UUID
+    token: str
+    email: str
+    role: MembershipRole
+    status: str
+
+
+class AcceptOut(BaseModel):
+    campaign_id: uuid.UUID
+    role: MembershipRole
+
+
+class CharacterCreateIn(BaseModel):
+    name: str
+    level: int = 1
+    abilities: dict[str, int]
+    max_hp: int
+    skill_proficiencies: list[str] = []
+    skill_expertise: list[str] = []
+    save_proficiencies: list[str] = []
+    base_armor_class: int | None = None
+    resistances: list[str] = []
+    immunities: list[str] = []
+    vulnerabilities: list[str] = []
+
+
+class CharacterOut(BaseModel):
+    id: uuid.UUID
+    campaign_id: uuid.UUID
+    player_id: uuid.UUID | None
+    name: str
+    level: int
+    sheet: dict
+
+
+class ProfileIn(BaseModel):
+    persona: str = ""
+    standing_instructions: str = ""
+    risk_tolerance: RiskTolerance = RiskTolerance.balanced
+    traits: dict = {}
+
+
+class ProfileOut(BaseModel):
+    character_id: uuid.UUID
+    persona: str
+    standing_instructions: str
+    risk_tolerance: RiskTolerance
+    traits: dict
+
+
+class RedLineIn(BaseModel):
+    kind: RedLineKind
+    entity_ids: list[str] = []
+    action_types: list[ActionType] = []
+    note: str = ""
+
+
+class RedLineOut(BaseModel):
+    kind: RedLineKind
+    entity_ids: list[str]
+    action_types: list[ActionType]
+    note: str
+
+
+# --- me + campaigns --------------------------------------------------------
+
+
 @app.get("/me", response_model=MeOut)
 async def me(user: CurrentUser) -> MeOut:
     """The authenticated caller's mirrored account (proves token -> user)."""
     return MeOut(id=user.id, email=user.email, display_name=user.display_name)
+
+
+@app.post("/campaigns", response_model=CampaignOut, status_code=201)
+async def create_campaign(
+    body: CampaignCreateIn, user: CurrentUser, session: SessionDep
+) -> CampaignOut:
+    """Create a campaign; the caller becomes its DM."""
+    campaign = await repository.create_campaign_with_owner(
+        session, name=body.name, owner=user
+    )
+    return CampaignOut(
+        id=campaign.id, name=campaign.name, owner_id=campaign.owner_id, my_role=MembershipRole.dm
+    )
+
+
+@app.get("/campaigns", response_model=list[CampaignOut])
+async def list_my_campaigns(user: CurrentUser, session: SessionDep) -> list[CampaignOut]:
+    """Every campaign the caller belongs to, with their role in each."""
+    memberships = await repository.campaigns_for_user(session, user_id=user.id)
+    return [
+        CampaignOut(
+            id=m.campaign.id,
+            name=m.campaign.name,
+            owner_id=m.campaign.owner_id,
+            my_role=m.role,
+        )
+        for m in memberships
+    ]
 
 
 @app.get("/campaigns/{campaign_id}/members", response_model=list[MemberOut])
@@ -267,9 +388,205 @@ async def remove_member(
     _dm: RequireDM,
     session: SessionDep,
 ) -> None:
-    """Remove a member from a campaign — DM only (proves role gating)."""
+    """Remove a member from a campaign — DM only."""
     members = await repository.campaign_members(session, campaign_id=campaign_id)
     target = next((m for m in members if m.user_id == user_id), None)
     if target is None:
         return
     await session.delete(target)
+
+
+# --- invites (AUTH-02) -----------------------------------------------------
+
+
+@app.post("/campaigns/{campaign_id}/invites", response_model=InviteOut, status_code=201)
+async def create_invite(
+    campaign_id: uuid.UUID,
+    body: InviteCreateIn,
+    user: CurrentUser,
+    _dm: RequireDM,
+    session: SessionDep,
+) -> InviteOut:
+    """Invite a player to the campaign by email — DM only."""
+    invite = await repository.invite_player(
+        session,
+        campaign=await _require_campaign(session, campaign_id),
+        email=body.email,
+        invited_by=user,
+        role=body.role,
+    )
+    return InviteOut(
+        id=invite.id,
+        token=invite.token,
+        email=invite.email,
+        role=invite.role,
+        status=invite.status.value,
+    )
+
+
+@app.post("/invites/{token}/accept", response_model=AcceptOut)
+async def accept_invite(token: str, user: CurrentUser, session: SessionDep) -> AcceptOut:
+    """Redeem an invite token, joining the caller to the campaign."""
+    membership = await repository.accept_invite(session, token=token, user=user)
+    return AcceptOut(campaign_id=membership.campaign_id, role=membership.role)
+
+
+# --- characters (DATA-02) --------------------------------------------------
+
+
+@app.post(
+    "/campaigns/{campaign_id}/characters", response_model=CharacterOut, status_code=201
+)
+async def create_character(
+    campaign_id: uuid.UUID,
+    body: CharacterCreateIn,
+    user: CurrentUser,
+    _membership: CurrentMembership,
+    session: SessionDep,
+) -> CharacterOut:
+    """Create a character in a campaign, owned by the caller (any member may)."""
+    # Build the domain sheet so it is validated (bad scores/levels -> 400) before
+    # it is persisted as the JSONB blob.
+    sheet = CharacterSheet(
+        name=body.name,
+        level=body.level,
+        abilities=body.abilities,
+        max_hp=body.max_hp,
+        skill_proficiencies=frozenset(body.skill_proficiencies),
+        skill_expertise=frozenset(body.skill_expertise),
+        save_proficiencies=frozenset(body.save_proficiencies),
+        base_armor_class=body.base_armor_class,
+        resistances=frozenset(body.resistances),
+        immunities=frozenset(body.immunities),
+        vulnerabilities=frozenset(body.vulnerabilities),
+    ).to_sheet()
+    character = await repository.create_character(
+        session,
+        campaign=await _require_campaign(session, campaign_id),
+        name=body.name,
+        level=body.level,
+        sheet=sheet,
+        player=user,
+    )
+    return _character_out(character)
+
+
+@app.get("/campaigns/{campaign_id}/characters", response_model=list[CharacterOut])
+async def list_characters(
+    campaign_id: uuid.UUID, _membership: CurrentMembership, session: SessionDep
+) -> list[CharacterOut]:
+    """Every character in a campaign the caller belongs to."""
+    characters = await repository.characters_in_campaign(session, campaign_id=campaign_id)
+    return [_character_out(c) for c in characters]
+
+
+@app.get("/characters/{character_id}", response_model=CharacterOut)
+async def get_character(character: CharacterForMember) -> CharacterOut:
+    """A single character (any member of its campaign may read)."""
+    return _character_out(character)
+
+
+# --- personality profile + red lines (DATA-04) -----------------------------
+
+
+@app.put("/characters/{character_id}/profile", response_model=ProfileOut)
+async def set_profile(
+    body: ProfileIn, character: CharacterForEditor, session: SessionDep
+) -> ProfileOut:
+    """Set/replace a character's stand-in personality profile (player or DM)."""
+    profile = await repository.set_personality_profile(
+        session,
+        character=character,
+        persona=body.persona,
+        standing_instructions=body.standing_instructions,
+        risk_tolerance=body.risk_tolerance,
+        traits=body.traits,
+    )
+    return ProfileOut(
+        character_id=character.id,
+        persona=profile.persona,
+        standing_instructions=profile.standing_instructions,
+        risk_tolerance=profile.risk_tolerance,
+        traits=profile.traits,
+    )
+
+
+@app.get("/characters/{character_id}/profile", response_model=ProfileOut)
+async def get_profile(character: CharacterForMember, session: SessionDep) -> ProfileOut:
+    """A character's personality profile (empty defaults if none set yet)."""
+    profile = await repository.personality_profile_for(session, character=character)
+    if profile is None:
+        return ProfileOut(
+            character_id=character.id,
+            persona="",
+            standing_instructions="",
+            risk_tolerance=RiskTolerance.balanced,
+            traits={},
+        )
+    return ProfileOut(
+        character_id=character.id,
+        persona=profile.persona,
+        standing_instructions=profile.standing_instructions,
+        risk_tolerance=profile.risk_tolerance,
+        traits=profile.traits,
+    )
+
+
+@app.post(
+    "/characters/{character_id}/red-lines", response_model=RedLineOut, status_code=201
+)
+async def add_red_line(
+    body: RedLineIn, character: CharacterForEditor, session: SessionDep
+) -> RedLineOut:
+    """Append a standing red line to a character's stand-in (player or DM)."""
+    row = await repository.add_red_line(
+        session,
+        character=character,
+        red_line=RedLine(
+            kind=body.kind,
+            entity_ids=frozenset(body.entity_ids),
+            action_types=frozenset(body.action_types),
+            note=body.note,
+        ),
+    )
+    return _red_line_out(row.as_red_line())
+
+
+@app.get("/characters/{character_id}/red-lines", response_model=list[RedLineOut])
+async def list_red_lines(
+    character: CharacterForMember, session: SessionDep
+) -> list[RedLineOut]:
+    """A character's standing red lines, in evaluation order."""
+    red_lines = await repository.red_lines_for(session, character=character)
+    return [_red_line_out(rl) for rl in red_lines]
+
+
+# --- helpers ---------------------------------------------------------------
+
+
+async def _require_campaign(session: AsyncSession, campaign_id: uuid.UUID) -> Campaign:
+    """Load a campaign or 404. (Callers past the auth gate imply it exists; be safe.)"""
+    campaign = await session.get(Campaign, campaign_id)
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="campaign not found")
+    return campaign
+
+
+def _character_out(character: Character) -> CharacterOut:
+    return CharacterOut(
+        id=character.id,
+        campaign_id=character.campaign_id,
+        player_id=character.player_id,
+        name=character.name,
+        level=character.level,
+        sheet=character.sheet,
+    )
+
+
+def _red_line_out(red_line: RedLine) -> RedLineOut:
+    return RedLineOut(
+        kind=red_line.kind,
+        entity_ids=sorted(red_line.entity_ids),
+        action_types=sorted(red_line.action_types),
+        note=red_line.note,
+    )

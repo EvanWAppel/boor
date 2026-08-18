@@ -80,6 +80,38 @@ async def sync_user(
     return user
 
 
+async def campaigns_for_user(
+    session: AsyncSession, *, user_id: uuid.UUID
+) -> list[Membership]:
+    """The caller's memberships, campaign eagerly loaded — one per campaign joined."""
+    result = await session.execute(
+        select(Membership)
+        .where(Membership.user_id == user_id)
+        .options(selectinload(Membership.campaign))
+        .order_by(Membership.created_at)
+    )
+    return list(result.scalars().all())
+
+
+async def get_character(
+    session: AsyncSession, *, character_id: uuid.UUID
+) -> Character | None:
+    """Load a character by id, or ``None`` if it doesn't exist."""
+    return await session.get(Character, character_id)
+
+
+async def characters_in_campaign(
+    session: AsyncSession, *, campaign_id: uuid.UUID
+) -> list[Character]:
+    """Every character in a campaign, in creation order."""
+    result = await session.execute(
+        select(Character)
+        .where(Character.campaign_id == campaign_id)
+        .order_by(Character.created_at)
+    )
+    return list(result.scalars().all())
+
+
 async def campaign_members(
     session: AsyncSession, *, campaign_id: uuid.UUID
 ) -> list[Membership]:
