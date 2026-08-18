@@ -12,10 +12,16 @@ testcontainers Postgres (see ``tests/conftest.py``).
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
 from functools import lru_cache
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 # libpq params that psycopg understands but asyncpg does not; stripped from the URL.
 _LIBPQ_ONLY_PARAMS = frozenset({"sslmode", "channel_binding"})
@@ -57,3 +63,20 @@ def get_engine() -> AsyncEngine:
 def get_sessionmaker() -> async_sessionmaker:
     """Process-wide async session factory."""
     return async_sessionmaker(get_engine(), expire_on_commit=False)
+
+
+async def get_session() -> AsyncIterator[AsyncSession]:
+    """Request-scoped session dependency: commit on success, roll back on error.
+
+    A FastAPI-shaped async generator (no framework import needed). Repository
+    functions only ``flush``; this owns the transaction boundary so a handler's
+    writes land exactly when the request succeeds.
+    """
+    maker = get_sessionmaker()
+    async with maker() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

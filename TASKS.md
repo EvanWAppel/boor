@@ -27,9 +27,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/decision 
 - [x] DATA-06 — Alembic wired (async, reads `DATABASE_URL`); migrations for the DATA-01/03 schema + DATA-02/04 (`975c11e58f23`), all verified reversible (enum types managed explicitly; `alembic check` clean). **Seed data landed** — `boor_service.db.seed` (`uv run python -m boor_service.db.seed`) builds a demo campaign via the real invite→accept flow with two stand-in-ready characters (persisted sheets + profiles + red lines) and a session; 4 tests, verified end-to-end against a real Postgres.
 
 ### Auth & access (invite-only)
-- [ ] AUTH-01 — Accounts + login (pick provider; invite-only)
-- [ ] AUTH-02 — Campaign owner invites players by link/email
-- [ ] AUTH-03 — Roles: DM vs player; per-campaign membership
+- [~] AUTH-01 — Accounts + login (Clerk — D-03). **Service side landed**: `boor_service.auth` verifies Clerk session JWTs against the public JWKS (RS256, no Clerk secret server-side) via an injectable signing-key resolver, and `repository.sync_user` mirrors the identity locally on first login (email required — Clerk JWT template must expose it). `get_current_user` FastAPI dep + guarded `/me`. **Web-side Clerk sign-in UI + `CLERK_ISSUER`/`CLERK_JWKS_URL` env provisioning still TBD.**
+- [~] AUTH-02 — Campaign owner invites players by link/email — invite→accept invariants live in `repository` (DATA-01) and are now covered by the auth role tests. **Invite-send + accept UI/endpoints still TBD.**
+- [x] AUTH-03 — Roles: DM vs player; per-campaign membership — `auth.dependencies.current_membership` (403 for non-members) + `require_dm` (403 for players); wired into example routes (`GET /campaigns/{id}/members` any-member, `DELETE …/members/{uid}` DM-only). Tests cover owner=DM, non-member, player-refused, DM-allowed.
 
 ### Rules engine (foundational)
 - [x] RULES-01 — 5e SRD dice roller (checks, attacks, saves, damage; advantage/disadvantage) — `boor_service.dice`, 18 tests green

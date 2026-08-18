@@ -1,9 +1,10 @@
-"""FastAPI surface over the 5e SRD rules engine (SETUP-02).
+"""FastAPI surface over the 5e SRD rules engine + authenticated campaign reads.
 
 A thin HTTP layer that exposes the pure domain logic in :mod:`boor_service.dice`,
 :mod:`boor_service.mechanics`, and :mod:`boor_service.combat` so the Next.js web
-app (and, later, the AI stand-in service) can call it. No persistence or auth yet
-— those wait on the datastore/auth decisions (see ``boor/DECISIONS.md``).
+app (and the AI stand-in service) can call it. The rules endpoints are
+stateless/unauthenticated (pure math); the campaign endpoints are gated by Clerk
+auth (:mod:`boor_service.auth`) — token -> mirrored user -> per-campaign role.
 
 The engine raises ``ValueError`` on bad input rather than swallowing it; we map
 that to HTTP 400 so callers see the real failure. Missing/mistyped fields are
@@ -15,6 +16,7 @@ Run locally with: ``uv run uvicorn boor_service.api:app --reload``.
 from __future__ import annotations
 
 import logging
+import uuid
 
 from fastapi import FastAPI
 from fastapi.requests import Request
@@ -22,6 +24,14 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from boor_service import mechanics
+from boor_service.auth.dependencies import (
+    CurrentMembership,
+    CurrentUser,
+    RequireDM,
+    SessionDep,
+)
+from boor_service.db import repository
+from boor_service.db.models import MembershipRole
 from boor_service.dice import RollResult, roll, roll_d20
 
 logger = logging.getLogger(__name__)
@@ -213,3 +223,53 @@ def combat_attack(body: AttackIn) -> AttackOut:
 @app.post("/combat/damage", response_model=RollOut)
 def combat_damage(body: DamageIn) -> RollOut:
     return _roll_out(mechanics.roll_damage(body.notation, critical=body.critical))
+
+
+# --- Authenticated campaign reads (Clerk, AUTH-03) -------------------------
+
+
+class MeOut(BaseModel):
+    id: uuid.UUID
+    email: str
+    display_name: str | None
+
+
+class MemberOut(BaseModel):
+    user_id: uuid.UUID
+    role: MembershipRole
+    display_name: str | None
+
+
+@app.get("/me", response_model=MeOut)
+async def me(user: CurrentUser) -> MeOut:
+    """The authenticated caller's mirrored account (proves token -> user)."""
+    return MeOut(id=user.id, email=user.email, display_name=user.display_name)
+
+
+@app.get("/campaigns/{campaign_id}/members", response_model=list[MemberOut])
+async def list_members(
+    campaign_id: uuid.UUID,
+    _membership: CurrentMembership,
+    session: SessionDep,
+) -> list[MemberOut]:
+    """Roster of a campaign the caller belongs to (any member may read)."""
+    members = await repository.campaign_members(session, campaign_id=campaign_id)
+    return [
+        MemberOut(user_id=m.user_id, role=m.role, display_name=m.user.display_name)
+        for m in members
+    ]
+
+
+@app.delete("/campaigns/{campaign_id}/members/{user_id}", status_code=204)
+async def remove_member(
+    campaign_id: uuid.UUID,
+    user_id: uuid.UUID,
+    _dm: RequireDM,
+    session: SessionDep,
+) -> None:
+    """Remove a member from a campaign — DM only (proves role gating)."""
+    members = await repository.campaign_members(session, campaign_id=campaign_id)
+    target = next((m for m in members if m.user_id == user_id), None)
+    if target is None:
+        return
+    await session.delete(target)

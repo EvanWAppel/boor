@@ -11,11 +11,13 @@ Callers own the transaction: these functions ``flush`` but do not ``commit``.
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from boor_service.ai.guardrails import RedLine
 from boor_service.db.models import (
@@ -37,6 +39,58 @@ from boor_service.db.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def sync_user(
+    session: AsyncSession,
+    *,
+    clerk_user_id: str,
+    email: str | None = None,
+    display_name: str | None = None,
+) -> User:
+    """Get-or-create the local mirror of a Clerk identity (auth is Clerk, D-03).
+
+    Called on every authenticated request: the first time we see a ``clerk_user_id``
+    we create the row (an ``email`` is required — configure Clerk's JWT template to
+    expose it); afterwards we keep the mirror fresh if the email/name changed.
+    """
+    user = (
+        await session.execute(
+            select(User).where(User.clerk_user_id == clerk_user_id)
+        )
+    ).scalar_one_or_none()
+
+    if user is None:
+        if not email:
+            raise ValueError(
+                "cannot mirror a new user without an email "
+                "(configure the Clerk JWT template to include 'email')"
+            )
+        user = User(clerk_user_id=clerk_user_id, email=email, display_name=display_name)
+        session.add(user)
+        await session.flush()
+        logger.info("mirrored new user %s from Clerk", clerk_user_id)
+        return user
+
+    if email and user.email != email:
+        user.email = email
+    if display_name and user.display_name != display_name:
+        user.display_name = display_name
+    await session.flush()
+    return user
+
+
+async def campaign_members(
+    session: AsyncSession, *, campaign_id: uuid.UUID
+) -> list[Membership]:
+    """A campaign's memberships with their users eagerly loaded, in join order."""
+    result = await session.execute(
+        select(Membership)
+        .where(Membership.campaign_id == campaign_id)
+        .options(selectinload(Membership.user))
+        .order_by(Membership.created_at)
+    )
+    return list(result.scalars().all())
 
 
 async def create_campaign_with_owner(
