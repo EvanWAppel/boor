@@ -18,13 +18,13 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from boor_service import mechanics
+from boor_service import mechanics, realtime
 from boor_service.ai.actions import ActionType
 from boor_service.ai.guardrails import RedLine, RedLineKind
 from boor_service.auth.dependencies import (
@@ -34,6 +34,7 @@ from boor_service.auth.dependencies import (
     CurrentUser,
     RequireDM,
     SessionDep,
+    VerifierDep,
 )
 from boor_service.character import Character as CharacterSheet
 from boor_service.db import repository
@@ -590,3 +591,22 @@ def _red_line_out(red_line: RedLine) -> RedLineOut:
         action_types=sorted(red_line.action_types),
         note=red_line.note,
     )
+
+
+# --- Realtime session room (WebSocket, VTT-01) -----------------------------
+
+
+@app.websocket("/ws/sessions/{session_id}")
+async def session_ws(
+    websocket: WebSocket,
+    session_id: uuid.UUID,
+    session: SessionDep,
+    verifier: VerifierDep,
+) -> None:
+    """Join a game session's shared realtime room.
+
+    Authenticate with ``?token=<clerk-jwt>`` (browsers can't set WS headers). The
+    handshake verifies the token and campaign membership before joining the room;
+    see :mod:`boor_service.realtime`.
+    """
+    await realtime.handle_connection(websocket, session_id, session, verifier, realtime.hub)

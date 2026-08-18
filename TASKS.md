@@ -42,7 +42,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/decision 
 
 Goal: a group runs a full live session end-to-end with a human DM. **No AI yet.**
 
-- [ ] VTT-01 — Realtime transport (websockets / realtime service); shared session room
+- [~] VTT-01 — Realtime transport (self-hosted WebSockets, D-01); shared session room — `boor_service.realtime`: `SessionHub` (per-session socket registry + presence + resilient broadcast) and an authenticated handler wired at `WS /ws/sessions/{id}?token=<clerk-jwt>`. Handshake verifies the Clerk token (D-03) + campaign membership before joining; `chat` frames persist to the DATA-03 timeline and relay, other typed frames relay with sender attribution. 7 tests (auth closes 4401/4403/4404, presence, chat-persist, multi-socket fan-out) via a fake socket. **Client (web) + reconnect/heartbeat + broker for multi-instance still TBD.**
 - [ ] VTT-02 — Map surface: load a map image, pan/zoom
 - [ ] VTT-03 — Tokens: place/move PC/NPC/monster tokens, synced live to all present
 - [ ] VTT-04 — Dice UI wired to rules engine; results posted to the log
