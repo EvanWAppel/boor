@@ -13,6 +13,7 @@ import type {
   Campaign,
   Character,
   CharacterCreate,
+  GameSession,
   Invite,
   Me,
   Member,
@@ -21,6 +22,8 @@ import type {
   ProfileInput,
   RedLine,
   RedLineInput,
+  RollResult,
+  SessionEvent,
 } from "./types";
 
 export type TokenGetter = () => Promise<string | null> | string | null;
@@ -67,6 +70,16 @@ export function createApiClient({ baseUrl, getToken }: ApiClientOptions) {
   }
 
   return {
+    // rules engine (unauthenticated pure math; token sent if present, ignored)
+    rollNotation: (notation: string) =>
+      request<RollResult>("POST", "/dice/roll", { notation }),
+    rollD20: (opts: { modifier?: number; advantage?: boolean; disadvantage?: boolean }) =>
+      request<RollResult>("POST", "/dice/d20", {
+        modifier: opts.modifier ?? 0,
+        advantage: opts.advantage ?? false,
+        disadvantage: opts.disadvantage ?? false,
+      }),
+
     // account
     me: () => request<Me>("GET", "/me"),
 
@@ -105,6 +118,20 @@ export function createApiClient({ baseUrl, getToken }: ApiClientOptions) {
       request<RedLine[]>("GET", `/characters/${characterId}/red-lines`),
     addRedLine: (characterId: string, redLine: RedLineInput) =>
       request<RedLine>("POST", `/characters/${characterId}/red-lines`, redLine),
+
+    // play sessions (the theater-of-the-mind table)
+    listSessions: (campaignId: string) =>
+      request<GameSession[]>("GET", `/campaigns/${campaignId}/sessions`),
+    createSession: (campaignId: string, title?: string) =>
+      request<GameSession>("POST", `/campaigns/${campaignId}/sessions`, {
+        title: title ?? null,
+      }),
+    getSession: (sessionId: string) =>
+      request<GameSession>("GET", `/sessions/${sessionId}`),
+    getSessionLog: (sessionId: string) =>
+      request<SessionEvent[]>("GET", `/sessions/${sessionId}/log`),
+    endSession: (sessionId: string) =>
+      request<GameSession>("POST", `/sessions/${sessionId}/end`),
   };
 }
 

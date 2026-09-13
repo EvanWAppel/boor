@@ -34,15 +34,21 @@ export interface PresenceMessage {
   present: PresenceEntry[];
 }
 
-export interface ChatMessage {
-  type: "chat";
+/** A persisted, timeline-backed frame: chat (IC), out-of-character, or a dice roll.
+ *  The service assigns `seq` and echoes these so clients can order/dedupe them. */
+export interface TimelineMessage {
+  type: "chat" | "ooc" | "roll";
   user_id: string;
   display_name: string | null;
-  body: string;
+  body: string | null;
+  payload: Record<string, unknown>;
   seq: number;
 }
 
-/** Any other typed frame the service relays (cursor, token move, ...). */
+/** Backwards-compatible alias — chat is one kind of timeline-backed frame. */
+export type ChatMessage = TimelineMessage;
+
+/** Any other typed frame the service relays ephemerally (initiative, typing, ...). */
 export interface RelayMessage {
   type: string;
   user_id: string;
@@ -50,7 +56,7 @@ export interface RelayMessage {
   [key: string]: unknown;
 }
 
-export type RoomMessage = PresenceMessage | ChatMessage | RelayMessage;
+export type RoomMessage = PresenceMessage | TimelineMessage | RelayMessage;
 
 export interface SessionRoomOptions {
   /** Service base URL (http/https); converted to ws/wss automatically. */
@@ -64,8 +70,12 @@ export interface SessionRoomOptions {
 }
 
 export interface SessionRoom {
-  /** Send a chat line (persisted to the timeline + relayed to the room). */
+  /** Send an in-character chat line (persisted to the timeline + relayed). */
   sendChat: (body: string) => void;
+  /** Send an out-of-character line (persisted as `out_of_character` + relayed). */
+  sendOoc: (body: string) => void;
+  /** Post a dice result to the log (persisted as a `roll` + relayed). */
+  sendRoll: (body: string, payload: Record<string, unknown>) => void;
   /** Send an arbitrary typed frame (relayed as-is with sender attribution). */
   send: (message: { type: string } & Record<string, unknown>) => void;
   close: () => void;
@@ -90,6 +100,9 @@ export function connectSessionRoom(options: SessionRoomOptions): SessionRoom {
 
   return {
     sendChat: (body: string) => socket.send(JSON.stringify({ type: "chat", body })),
+    sendOoc: (body: string) => socket.send(JSON.stringify({ type: "ooc", body })),
+    sendRoll: (body: string, payload: Record<string, unknown>) =>
+      socket.send(JSON.stringify({ type: "roll", body, payload })),
     send: (message) => socket.send(JSON.stringify(message)),
     close: () => socket.close(),
     socket,
