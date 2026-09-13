@@ -23,12 +23,19 @@ from boor_service.ai.standin import (
     StandInContext,
     StandInError,
     act_on_turn,
+    act_on_turn_for_character,
     decide_action,
     event_kind_for,
     event_payload,
+    scoped_timeline_text,
 )
-from boor_service.db.models import EventKind
-from boor_service.db.repository import create_campaign_with_owner, create_session
+from boor_service.db.models import EventAudience, EventKind
+from boor_service.db.repository import (
+    append_event,
+    create_campaign_with_owner,
+    create_character,
+    create_session,
+)
 from boor_service.mechanics import CheckResult
 
 HERO = "hero"
@@ -262,6 +269,58 @@ async def test_act_on_turn_appends_ai_attributed_event(session, make_user) -> No
     assert event.actor_label == "Thora"
     assert event.kind is EventKind.action
     assert event.seq == 1
+    assert event.audience is EventAudience.table  # the table sees what the stand-in does
+
+
+async def test_standin_timeline_excludes_secrets_another_pc_knows(
+    session,
+    make_user,  # type: ignore[no-untyped-def]
+) -> None:
+    """Primer §4.2: the paladin's stand-in must not act on the rogue's private bribe."""
+    owner = await make_user()
+    campaign = await create_campaign_with_owner(session, name="Camp", owner=owner)
+    game_session = await create_session(session, campaign=campaign)
+    paladin = await create_character(session, campaign=campaign, name="Paladin")
+    rogue = await create_character(session, campaign=campaign, name="Rogue")
+
+    await append_event(
+        session,
+        game_session=game_session,
+        kind=EventKind.narration,
+        body="The duke greets the party.",
+    )
+    await append_event(
+        session,
+        game_session=game_session,
+        kind=EventKind.in_character,
+        actor_label="Rogue",
+        body="I'll take the gold. Tell no one.",
+        audience=EventAudience.characters,
+        visible_to=[rogue.id],
+    )
+
+    paladin_text = await scoped_timeline_text(session, game_session=game_session, character=paladin)
+    rogue_text = await scoped_timeline_text(session, game_session=game_session, character=rogue)
+    assert "I'll take the gold" not in paladin_text
+    assert "The duke greets the party." in paladin_text
+    assert "I'll take the gold" in rogue_text
+
+    client = _client_calling("speak", {"message": "Well met, my lord."})
+    _decision, event = await act_on_turn_for_character(
+        session,
+        game_session=game_session,
+        character=paladin,
+        client=client,
+        context=_context(),
+        rng=random.Random(1),
+    )
+    # the prompt the model saw is the paladin-scoped one (no bribe)
+    user_message = client.messages.calls[0]["messages"][0]["content"]
+    assert "I'll take the gold" not in user_message
+    assert "The duke greets the party." in user_message
+    # the action itself is table-public
+    assert event.audience is EventAudience.table
+    assert event.ai_generated is True
 
 
 # --- live model (opt-in) -----------------------------------------------------

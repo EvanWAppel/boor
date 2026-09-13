@@ -26,7 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from boor_service.auth.clerk import AuthError, ClerkVerifier
 from boor_service.db import repository
-from boor_service.db.models import EventKind, GameSession, User
+from boor_service.db.models import EventAudience, EventKind, GameSession, MembershipRole, User
+from boor_service.knowledge import normalize_visibility, presence_may_receive
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +50,18 @@ class WebSocketLike(Protocol):
 
 @dataclass(frozen=True)
 class Presence:
-    """Who a connected socket belongs to, for the room roster."""
+    """Who a connected socket belongs to, for the room roster.
+
+    ``role`` and ``character_ids`` are the DATA-07 fan-out keys: a private
+    event is delivered only to the DM and to sockets whose characters are in
+    the event's ``visible_to`` set. Defaults keep existing tests/callers
+    (table-public frames) working without filling them in.
+    """
 
     user_id: str
     display_name: str | None
+    role: MembershipRole = MembershipRole.player
+    character_ids: tuple[str, ...] = ()
 
 
 class SessionHub:
@@ -85,15 +94,30 @@ class SessionHub:
         message: dict[str, Any],
         *,
         exclude: WebSocketLike | None = None,
+        include: WebSocketLike | None = None,
+        audience: EventAudience = EventAudience.table,
+        visible_to: list[str] | None = None,
     ) -> None:
-        """Send ``message`` to every socket in the room (optionally excluding one).
+        """Send ``message`` to sockets in the room that may know it.
 
-        A socket that errors on send is dropped from the room rather than aborting
-        the whole broadcast — one dead connection must not silence the table.
+        ``audience`` / ``visible_to`` are the DATA-07 filter (default ``table``
+        = everyone, matching pre-scoping behavior). ``include`` always receives
+        the frame so a speaker hears their own whisper even if their character
+        isn't in ``visible_to``. A socket that errors on send is dropped from
+        the room rather than aborting the whole broadcast — one dead connection
+        must not silence the table.
         """
         room = self._rooms.get(session_id, {})
-        for socket in list(room):
+        allowed = list(visible_to or [])
+        for socket, presence in list(room.items()):
             if socket is exclude:
+                continue
+            if socket is not include and not presence_may_receive(
+                audience,
+                allowed,
+                role=presence.role,
+                character_ids=presence.character_ids,
+            ):
                 continue
             try:
                 await socket.send_json(message)
@@ -151,12 +175,31 @@ async def _authorize(
         return None
 
     members = await repository.campaign_members(db, campaign_id=game_session.campaign_id)
-    if not any(m.user_id == user.id for m in members):
+    membership = next((m for m in members if m.user_id == user.id), None)
+    if membership is None:
         await socket.close(code=WS_FORBIDDEN)
         return None
 
-    presence = Presence(user_id=str(user.id), display_name=user.display_name)
+    characters = await repository.characters_in_campaign(db, campaign_id=game_session.campaign_id)
+    character_ids = tuple(str(c.id) for c in characters if c.player_id == user.id)
+    presence = Presence(
+        user_id=str(user.id),
+        display_name=user.display_name,
+        role=membership.role,
+        character_ids=character_ids,
+    )
     return user, game_session, presence
+
+
+# Frame types that append to the durable session timeline (DATA-03), mapped to
+# their EventKind. Everything else is a pure ephemeral relay (typing, cursor,
+# initiative-tracker state the DM drives). Keeping these durable is what lets a
+# late joiner replay the table via GET /sessions/{id}/log and see real history.
+_PERSISTED_KINDS: dict[str, EventKind] = {
+    "chat": EventKind.in_character,
+    "ooc": EventKind.out_of_character,
+    "roll": EventKind.roll,
+}
 
 
 async def _handle_message(
@@ -166,37 +209,59 @@ async def _handle_message(
     user: User,
     game_session: GameSession,
     presence: Presence,
+    socket: WebSocketLike,
     db: AsyncSession,
     room: SessionHub,
 ) -> None:
-    """Relay one client message to the room; persist chat to the timeline."""
+    """Relay one client message to the room; persist chat/ooc/roll to the timeline."""
     if not isinstance(message, dict) or "type" not in message:
         return  # ignore malformed frames rather than dropping the connection
-    kind = message["type"]
-    if kind == "chat":
-        body = str(message.get("body", ""))
+    frame_type = message["type"]
+    event_kind = _PERSISTED_KINDS.get(frame_type)
+    if event_kind is not None:
+        body = str(message["body"]) if message.get("body") is not None else None
+        payload = message.get("payload") if isinstance(message.get("payload"), dict) else None
+        try:
+            audience, visible_to = normalize_visibility(
+                message.get("audience"), message.get("visible_to")
+            )
+        except ValueError:
+            logger.info("dropping a persisted frame with invalid audience")
+            return
+        # The speaker knows what they said: fold their characters into the set.
+        if audience is EventAudience.characters:
+            visible_to = sorted(set(visible_to) | set(presence.character_ids))
         event = await repository.append_event(
             db,
             game_session=game_session,
-            kind=EventKind.in_character,
+            kind=event_kind,
             actor=user,
             actor_label=presence.display_name,
             body=body,
+            payload=payload,
+            audience=audience,
+            visible_to=visible_to,
         )
         await db.commit()
         await room.broadcast(
             session_id,
             {
-                "type": "chat",
+                "type": frame_type,
                 "user_id": presence.user_id,
                 "display_name": presence.display_name,
                 "body": body,
+                "payload": event.payload,
                 "seq": event.seq,
+                "audience": event.audience.value,
+                "visible_to": list(event.visible_to),
             },
+            audience=event.audience,
+            visible_to=list(event.visible_to),
+            include=socket,
         )
     else:
-        # Pure relay for other typed frames (cursor, token move, ...): tag the
-        # sender and fan out. Persistence for those kinds lands with their features.
+        # Pure relay for ephemeral typed frames (typing, cursor, initiative state):
+        # tag the sender and fan out, no persistence.
         await room.broadcast(
             session_id,
             {**message, "user_id": presence.user_id, "display_name": presence.display_name},
@@ -220,9 +285,7 @@ async def handle_connection(
 
     room.join(session_id, socket, presence)
     logger.info("user %s joined session %s room", user.id, session_id)
-    await room.broadcast(
-        session_id, _presence_message("join", presence, room.roster(session_id))
-    )
+    await room.broadcast(session_id, _presence_message("join", presence, room.roster(session_id)))
     try:
         while True:
             message = await socket.receive_json()
@@ -232,6 +295,7 @@ async def handle_connection(
                 user=user,
                 game_session=game_session,
                 presence=presence,
+                socket=socket,
                 db=db,
                 room=room,
             )

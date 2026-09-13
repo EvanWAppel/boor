@@ -27,7 +27,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from boor_service.auth.clerk import AuthError, ClerkVerifier, verifier_from_env
 from boor_service.db import repository
-from boor_service.db.models import Character, Membership, MembershipRole, User
+from boor_service.db.models import (
+    Character,
+    GameSession,
+    Membership,
+    MembershipRole,
+    User,
+)
 from boor_service.db.session import get_session
 
 logger = logging.getLogger(__name__)
@@ -181,3 +187,56 @@ async def character_for_editor(
 
 CharacterForMember = Annotated[Character, Depends(character_for_member)]
 CharacterForEditor = Annotated[Character, Depends(character_for_editor)]
+
+
+async def _session_in_reach(
+    session: AsyncSession, *, session_id: uuid.UUID, user: User
+) -> tuple[GameSession, Membership]:
+    """Load a game session and the caller's membership in its campaign.
+
+    404 if the session is gone; 403 if the caller isn't in its campaign. Mirrors
+    :func:`_character_in_reach` — a session is reachable only through membership.
+    """
+    game_session = await session.get(GameSession, session_id)
+    if game_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="session not found"
+        )
+    membership = await _load_membership(
+        session, campaign_id=game_session.campaign_id, user_id=user.id
+    )
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="not a member of this session's campaign",
+        )
+    return game_session, membership
+
+
+async def game_session_for_member(
+    session_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> GameSession:
+    """A game session any member of its campaign may read/join."""
+    game_session, _membership = await _session_in_reach(
+        session, session_id=session_id, user=user
+    )
+    return game_session
+
+
+async def game_session_for_dm(
+    session_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> GameSession:
+    """A game session only the campaign DM may control (start/end)."""
+    game_session, membership = await _session_in_reach(
+        session, session_id=session_id, user=user
+    )
+    if membership.role is not MembershipRole.dm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="this action requires the campaign DM role",
+        )
+    return game_session
+
+
+GameSessionForMember = Annotated[GameSession, Depends(game_session_for_member)]
+GameSessionForDM = Annotated[GameSession, Depends(game_session_for_dm)]

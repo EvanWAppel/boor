@@ -8,6 +8,7 @@ from __future__ import annotations
 import itertools
 import random
 import time
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 
 import httpx
@@ -157,6 +158,39 @@ def mint_token(clerk_keypair: tuple[str, str]) -> Callable[..., str]:
         )
 
     return _mint
+
+
+@pytest_asyncio.fixture
+async def session_log_seeder(
+    session: AsyncSession,
+) -> Callable[..., Awaitable[None]]:
+    """Append a couple of timeline events to a session, as the realtime handler would.
+
+    Shares the test's single session (the same one ``auth_client`` reads through),
+    so seeded events are visible to a subsequent ``GET /sessions/{id}/log``.
+    """
+    from boor_service.db.models import EventKind, GameSession
+    from boor_service.db.repository import append_event
+
+    async def _seed(session_id: str) -> None:
+        game_session = await session.get(GameSession, uuid.UUID(session_id))
+        assert game_session is not None
+        await append_event(
+            session,
+            game_session=game_session,
+            kind=EventKind.narration,
+            body="The door creaks open.",
+        )
+        await append_event(
+            session,
+            game_session=game_session,
+            kind=EventKind.roll,
+            body="Perception",
+            payload={"total": 12},
+        )
+        await session.commit()
+
+    return _seed
 
 
 @pytest_asyncio.fixture

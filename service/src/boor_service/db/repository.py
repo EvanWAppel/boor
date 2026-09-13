@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,6 +26,7 @@ from boor_service.db.models import (
     Campaign,
     Character,
     CharacterRedLine,
+    EventAudience,
     EventKind,
     GameSession,
     Invite,
@@ -37,6 +39,7 @@ from boor_service.db.models import (
     SessionStatus,
     User,
 )
+from boor_service.knowledge import is_visible, normalize_visibility
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +58,7 @@ async def sync_user(
     expose it); afterwards we keep the mirror fresh if the email/name changed.
     """
     user = (
-        await session.execute(
-            select(User).where(User.clerk_user_id == clerk_user_id)
-        )
+        await session.execute(select(User).where(User.clerk_user_id == clerk_user_id))
     ).scalar_one_or_none()
 
     if user is None:
@@ -80,9 +81,7 @@ async def sync_user(
     return user
 
 
-async def campaigns_for_user(
-    session: AsyncSession, *, user_id: uuid.UUID
-) -> list[Membership]:
+async def campaigns_for_user(session: AsyncSession, *, user_id: uuid.UUID) -> list[Membership]:
     """The caller's memberships, campaign eagerly loaded — one per campaign joined."""
     result = await session.execute(
         select(Membership)
@@ -93,9 +92,7 @@ async def campaigns_for_user(
     return list(result.scalars().all())
 
 
-async def get_character(
-    session: AsyncSession, *, character_id: uuid.UUID
-) -> Character | None:
+async def get_character(session: AsyncSession, *, character_id: uuid.UUID) -> Character | None:
     """Load a character by id, or ``None`` if it doesn't exist."""
     return await session.get(Character, character_id)
 
@@ -105,16 +102,12 @@ async def characters_in_campaign(
 ) -> list[Character]:
     """Every character in a campaign, in creation order."""
     result = await session.execute(
-        select(Character)
-        .where(Character.campaign_id == campaign_id)
-        .order_by(Character.created_at)
+        select(Character).where(Character.campaign_id == campaign_id).order_by(Character.created_at)
     )
     return list(result.scalars().all())
 
 
-async def campaign_members(
-    session: AsyncSession, *, campaign_id: uuid.UUID
-) -> list[Membership]:
+async def campaign_members(session: AsyncSession, *, campaign_id: uuid.UUID) -> list[Membership]:
     """A campaign's memberships with their users eagerly loaded, in join order."""
     result = await session.execute(
         select(Membership)
@@ -125,9 +118,7 @@ async def campaign_members(
     return list(result.scalars().all())
 
 
-async def create_campaign_with_owner(
-    session: AsyncSession, *, name: str, owner: User
-) -> Campaign:
+async def create_campaign_with_owner(session: AsyncSession, *, name: str, owner: User) -> Campaign:
     """Create a campaign and its owner's DM membership together."""
     campaign = Campaign(name=name, owner_id=owner.id)
     # Append via the relationship: the UUID pk is generated at flush time, so
@@ -162,9 +153,7 @@ async def invite_player(
     return invite
 
 
-async def accept_invite(
-    session: AsyncSession, *, token: str, user: User
-) -> Membership:
+async def accept_invite(session: AsyncSession, *, token: str, user: User) -> Membership:
     """Redeem an invite ``token`` for ``user``, creating their membership.
 
     Raises ``ValueError`` if the token is unknown, the invite is not pending, it
@@ -193,9 +182,7 @@ async def accept_invite(
     if already_member is not None:
         raise ValueError("user is already a member of this campaign")
 
-    membership = Membership(
-        campaign_id=invite.campaign_id, user_id=user.id, role=invite.role
-    )
+    membership = Membership(campaign_id=invite.campaign_id, user_id=user.id, role=invite.role)
     session.add(membership)
     invite.status = InviteStatus.accepted
     invite.accepted_by_id = user.id
@@ -240,9 +227,7 @@ async def set_personality_profile(
     """Create or update a character's single personality profile (upsert, DATA-04)."""
     profile = (
         await session.execute(
-            select(PersonalityProfile).where(
-                PersonalityProfile.character_id == character.id
-            )
+            select(PersonalityProfile).where(PersonalityProfile.character_id == character.id)
         )
     ).scalar_one_or_none()
     if profile is None:
@@ -263,9 +248,7 @@ async def personality_profile_for(
     """A character's personality profile, or ``None`` if none has been set yet."""
     return (
         await session.execute(
-            select(PersonalityProfile).where(
-                PersonalityProfile.character_id == character.id
-            )
+            select(PersonalityProfile).where(PersonalityProfile.character_id == character.id)
         )
     ).scalar_one_or_none()
 
@@ -299,21 +282,23 @@ async def add_red_line(
     return row
 
 
-async def red_lines_for(
-    session: AsyncSession, *, character: Character
-) -> tuple[RedLine, ...]:
+async def red_lines_for(session: AsyncSession, *, character: Character) -> tuple[RedLine, ...]:
     """A character's standing red lines as domain objects, in evaluation order.
 
     The tuple is ready to hand straight to ``check_action`` /
     :class:`~boor_service.ai.standin.StandInContext`.
     """
     rows = (
-        await session.execute(
-            select(CharacterRedLine)
-            .where(CharacterRedLine.character_id == character.id)
-            .order_by(CharacterRedLine.position)
+        (
+            await session.execute(
+                select(CharacterRedLine)
+                .where(CharacterRedLine.character_id == character.id)
+                .order_by(CharacterRedLine.position)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return tuple(row.as_red_line() for row in rows)
 
 
@@ -347,12 +332,17 @@ async def append_event(
     body: str | None = None,
     payload: dict[str, Any] | None = None,
     ai_generated: bool = False,
+    audience: EventAudience | str = EventAudience.table,
+    visible_to: Sequence[uuid.UUID | str] | None = None,
 ) -> SessionEvent:
     """Append an entry to a session's timeline, assigning the next ``seq``.
 
     ``seq`` is ``max(seq) + 1`` for the session (starting at 1). The unique
     constraint on ``(session_id, seq)`` guards against a racing double-append.
+    ``audience`` / ``visible_to`` are the DATA-07 knowledge scope; default is
+    public to the table so existing chat/dice callers stay unchanged.
     """
+    parsed_audience, parsed_visible_to = normalize_visibility(audience, visible_to)
     next_seq = (
         await session.execute(
             select(func.coalesce(func.max(SessionEvent.seq), 0)).where(
@@ -369,15 +359,15 @@ async def append_event(
         body=body,
         payload=payload if payload is not None else {},
         ai_generated=ai_generated,
+        audience=parsed_audience,
+        visible_to=parsed_visible_to,
     )
     session.add(event)
     await session.flush()
     return event
 
 
-async def end_session(
-    session: AsyncSession, *, game_session: GameSession
-) -> GameSession:
+async def end_session(session: AsyncSession, *, game_session: GameSession) -> GameSession:
     """Mark a session ended and stamp ``ended_at``."""
     game_session.status = SessionStatus.ended
     game_session.ended_at = datetime.now(UTC)
@@ -386,9 +376,7 @@ async def end_session(
     return game_session
 
 
-async def story_log(
-    session: AsyncSession, *, game_session: GameSession
-) -> list[SessionEvent]:
+async def story_log(session: AsyncSession, *, game_session: GameSession) -> list[SessionEvent]:
     """The narrative subset of a session's timeline, in order (the 'story log')."""
     result = await session.execute(
         select(SessionEvent)
@@ -399,3 +387,122 @@ async def story_log(
         .order_by(SessionEvent.seq)
     )
     return list(result.scalars().all())
+
+
+async def sessions_for_campaign(
+    session: AsyncSession, *, campaign_id: uuid.UUID
+) -> list[GameSession]:
+    """Every play session of a campaign, newest first (for the session picker)."""
+    result = await session.execute(
+        select(GameSession)
+        .where(GameSession.campaign_id == campaign_id)
+        .order_by(GameSession.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def session_timeline(
+    session: AsyncSession, *, game_session: GameSession
+) -> list[SessionEvent]:
+    """The full ordered timeline of a session — every kind, for room replay.
+
+    Unlike :func:`story_log` (the narrative subset), this is the complete record
+    a joining client replays to catch up: chat, dice rolls, turns, and system
+    events, in ``seq`` order. This is the *unscoped* record — the DM's view.
+    Stand-ins and players must use :func:`timeline_for_character` /
+    :func:`timeline_for_viewer` so they cannot see what they shouldn't.
+    """
+    result = await session.execute(
+        select(SessionEvent)
+        .where(SessionEvent.session_id == game_session.id)
+        .order_by(SessionEvent.seq)
+    )
+    return list(result.scalars().all())
+
+
+async def timeline_for_character(
+    session: AsyncSession, *, game_session: GameSession, character: Character
+) -> list[SessionEvent]:
+    """Events this character knows — the stand-in's only legal view of the record.
+
+    Filters the session timeline through :func:`boor_service.knowledge.is_visible`
+    with ``is_dm=False``. A secret the rogue took in a private channel will not
+    appear here for the paladin, even though it is in the campaign record.
+    """
+    events = await session_timeline(session, game_session=game_session)
+    character_id = str(character.id)
+    return [
+        event
+        for event in events
+        if is_visible(event.audience, event.visible_to, character_ids=(character_id,), is_dm=False)
+    ]
+
+
+async def timeline_for_viewer(
+    session: AsyncSession, *, game_session: GameSession, viewer: User
+) -> list[SessionEvent]:
+    """Events a human at the table may see: DM sees all, a player sees table + theirs.
+
+    Used by ``GET /sessions/{id}/log`` so a late-joining player cannot replay a
+    whisper they weren't in. The DM is omniscient as a viewer (not as a stand-in).
+    """
+    membership = (
+        await session.execute(
+            select(Membership).where(
+                Membership.campaign_id == game_session.campaign_id,
+                Membership.user_id == viewer.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if membership is None:
+        return []
+    if membership.role is MembershipRole.dm:
+        return await session_timeline(session, game_session=game_session)
+
+    characters = await characters_in_campaign(session, campaign_id=game_session.campaign_id)
+    character_ids = tuple(str(c.id) for c in characters if c.player_id == viewer.id)
+    events = await session_timeline(session, game_session=game_session)
+    return [
+        event
+        for event in events
+        if is_visible(event.audience, event.visible_to, character_ids=character_ids, is_dm=False)
+    ]
+
+
+def render_timeline(events: Sequence[SessionEvent]) -> str:
+    """Prompt-ready rendering of an already-scoped timeline.
+
+    Callers must pass a *scoped* list (from :func:`timeline_for_character`); this
+    function does not re-filter. An empty timeline is an explicit "nothing yet"
+    so the stand-in isn't staring at a blank user message.
+    """
+    if not events:
+        return "(nothing has happened yet this session)"
+    lines: list[str] = []
+    for event in events:
+        who = event.actor_label or "the table"
+        marker = "[AI] " if event.ai_generated else ""
+        body = event.body or f"({event.kind.value})"
+        lines.append(f"{event.seq}. {marker}{who}: {body}")
+    return "\n".join(lines)
+
+
+async def reveal_event_to(
+    session: AsyncSession, *, event: SessionEvent, character: Character
+) -> SessionEvent:
+    """Grant a character knowledge of an event (a secret becomes known).
+
+    A ``table`` event is already public — no-op. A ``dm`` note becomes a
+    ``characters`` whisper to this character. A ``characters`` event adds the
+    character to ``visible_to`` if they weren't already on it.
+    """
+    character_id = str(character.id)
+    if event.audience is EventAudience.table:
+        return event
+    if event.audience is EventAudience.dm:
+        event.audience = EventAudience.characters
+        event.visible_to = [character_id]
+    elif character_id not in event.visible_to:
+        event.visible_to = [*event.visible_to, character_id]
+    await session.flush()
+    return event

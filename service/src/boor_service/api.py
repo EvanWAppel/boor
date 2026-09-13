@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.requests import Request
@@ -32,13 +33,25 @@ from boor_service.auth.dependencies import (
     CharacterForMember,
     CurrentMembership,
     CurrentUser,
+    GameSessionForDM,
+    GameSessionForMember,
     RequireDM,
     SessionDep,
     VerifierDep,
 )
 from boor_service.character import Character as CharacterSheet
 from boor_service.db import repository
-from boor_service.db.models import Campaign, Character, MembershipRole, RiskTolerance
+from boor_service.db.models import (
+    Campaign,
+    Character,
+    EventAudience,
+    EventKind,
+    GameSession,
+    MembershipRole,
+    RiskTolerance,
+    SessionEvent,
+    SessionStatus,
+)
 from boor_service.dice import RollResult, roll, roll_d20
 
 logger = logging.getLogger(__name__)
@@ -331,6 +344,32 @@ class RedLineOut(BaseModel):
     note: str
 
 
+class SessionCreateIn(BaseModel):
+    title: str | None = None
+
+
+class SessionOut(BaseModel):
+    id: uuid.UUID
+    campaign_id: uuid.UUID
+    title: str | None
+    status: SessionStatus
+    started_at: datetime | None
+    ended_at: datetime | None
+
+
+class EventOut(BaseModel):
+    seq: int
+    kind: EventKind
+    actor_user_id: uuid.UUID | None
+    actor_label: str | None
+    body: str | None
+    payload: dict
+    ai_generated: bool
+    audience: EventAudience
+    visible_to: list[str]
+    created_at: datetime
+
+
 # --- me + campaigns --------------------------------------------------------
 
 
@@ -345,9 +384,7 @@ async def create_campaign(
     body: CampaignCreateIn, user: CurrentUser, session: SessionDep
 ) -> CampaignOut:
     """Create a campaign; the caller becomes its DM."""
-    campaign = await repository.create_campaign_with_owner(
-        session, name=body.name, owner=user
-    )
+    campaign = await repository.create_campaign_with_owner(session, name=body.name, owner=user)
     return CampaignOut(
         id=campaign.id, name=campaign.name, owner_id=campaign.owner_id, my_role=MembershipRole.dm
     )
@@ -377,8 +414,7 @@ async def list_members(
     """Roster of a campaign the caller belongs to (any member may read)."""
     members = await repository.campaign_members(session, campaign_id=campaign_id)
     return [
-        MemberOut(user_id=m.user_id, role=m.role, display_name=m.user.display_name)
-        for m in members
+        MemberOut(user_id=m.user_id, role=m.role, display_name=m.user.display_name) for m in members
     ]
 
 
@@ -435,9 +471,7 @@ async def accept_invite(token: str, user: CurrentUser, session: SessionDep) -> A
 # --- characters (DATA-02) --------------------------------------------------
 
 
-@app.post(
-    "/campaigns/{campaign_id}/characters", response_model=CharacterOut, status_code=201
-)
+@app.post("/campaigns/{campaign_id}/characters", response_model=CharacterOut, status_code=201)
 async def create_character(
     campaign_id: uuid.UUID,
     body: CharacterCreateIn,
@@ -533,9 +567,7 @@ async def get_profile(character: CharacterForMember, session: SessionDep) -> Pro
     )
 
 
-@app.post(
-    "/characters/{character_id}/red-lines", response_model=RedLineOut, status_code=201
-)
+@app.post("/characters/{character_id}/red-lines", response_model=RedLineOut, status_code=201)
 async def add_red_line(
     body: RedLineIn, character: CharacterForEditor, session: SessionDep
 ) -> RedLineOut:
@@ -554,12 +586,69 @@ async def add_red_line(
 
 
 @app.get("/characters/{character_id}/red-lines", response_model=list[RedLineOut])
-async def list_red_lines(
-    character: CharacterForMember, session: SessionDep
-) -> list[RedLineOut]:
+async def list_red_lines(character: CharacterForMember, session: SessionDep) -> list[RedLineOut]:
     """A character's standing red lines, in evaluation order."""
     red_lines = await repository.red_lines_for(session, character=character)
     return [_red_line_out(rl) for rl in red_lines]
+
+
+# --- play sessions + timeline (DATA-03; the theater-of-the-mind table) ------
+# A session is the live room friends join for MILE-1. The DM opens one; any member
+# lists/reads them and replays the timeline to catch up on join. Realtime frames
+# (chat, dice) append to this same timeline in boor_service.realtime.
+
+
+@app.post("/campaigns/{campaign_id}/sessions", response_model=SessionOut, status_code=201)
+async def create_game_session(
+    campaign_id: uuid.UUID,
+    body: SessionCreateIn,
+    _dm: RequireDM,
+    session: SessionDep,
+) -> SessionOut:
+    """Open a new play session for the campaign, started immediately — DM only."""
+    game_session = await repository.create_session(
+        session,
+        campaign=await _require_campaign(session, campaign_id),
+        title=body.title,
+        status=SessionStatus.active,
+    )
+    return _session_out(game_session)
+
+
+@app.get("/campaigns/{campaign_id}/sessions", response_model=list[SessionOut])
+async def list_game_sessions(
+    campaign_id: uuid.UUID, _membership: CurrentMembership, session: SessionDep
+) -> list[SessionOut]:
+    """Every play session of a campaign the caller belongs to, newest first."""
+    sessions = await repository.sessions_for_campaign(session, campaign_id=campaign_id)
+    return [_session_out(s) for s in sessions]
+
+
+@app.get("/sessions/{session_id}", response_model=SessionOut)
+async def get_game_session(game_session: GameSessionForMember) -> SessionOut:
+    """A single play session (any member of its campaign may read)."""
+    return _session_out(game_session)
+
+
+@app.get("/sessions/{session_id}/log", response_model=list[EventOut])
+async def get_session_log(
+    game_session: GameSessionForMember, user: CurrentUser, session: SessionDep
+) -> list[EventOut]:
+    """The viewer's scoped timeline of a session, for replay on join.
+
+    The DM sees the full record. A player sees table-public events plus
+    whispers their own characters know (DATA-07). A late joiner cannot
+    replay a private channel they weren't in.
+    """
+    events = await repository.timeline_for_viewer(session, game_session=game_session, viewer=user)
+    return [_event_out(e) for e in events]
+
+
+@app.post("/sessions/{session_id}/end", response_model=SessionOut)
+async def end_game_session(game_session: GameSessionForDM, session: SessionDep) -> SessionOut:
+    """Mark a session ended — DM only."""
+    ended = await repository.end_session(session, game_session=game_session)
+    return _session_out(ended)
 
 
 # --- helpers ---------------------------------------------------------------
@@ -581,6 +670,32 @@ def _character_out(character: Character) -> CharacterOut:
         name=character.name,
         level=character.level,
         sheet=character.sheet,
+    )
+
+
+def _session_out(game_session: GameSession) -> SessionOut:
+    return SessionOut(
+        id=game_session.id,
+        campaign_id=game_session.campaign_id,
+        title=game_session.title,
+        status=game_session.status,
+        started_at=game_session.started_at,
+        ended_at=game_session.ended_at,
+    )
+
+
+def _event_out(event: SessionEvent) -> EventOut:
+    return EventOut(
+        seq=event.seq,
+        kind=event.kind,
+        actor_user_id=event.actor_user_id,
+        actor_label=event.actor_label,
+        body=event.body,
+        payload=event.payload,
+        ai_generated=event.ai_generated,
+        audience=event.audience,
+        visible_to=list(event.visible_to),
+        created_at=event.created_at,
     )
 
 

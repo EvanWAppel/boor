@@ -16,10 +16,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from boor_service.auth.clerk import ClerkVerifier
-from boor_service.db.models import SessionEvent, User
+from boor_service.db.models import (
+    EventAudience,
+    EventKind,
+    MembershipRole,
+    SessionEvent,
+    User,
+)
 from boor_service.db.repository import (
+    accept_invite,
     create_campaign_with_owner,
+    create_character,
     create_session,
+    invite_player,
     sync_user,
 )
 from boor_service.realtime import (
@@ -135,10 +144,10 @@ async def test_member_joins_and_chat_persists_to_timeline(
 
     # the chat landed on the session timeline (DATA-03)
     events = (
-        await session.execute(
-            select(SessionEvent).where(SessionEvent.session_id == session_id)
-        )
-    ).scalars().all()
+        (await session.execute(select(SessionEvent).where(SessionEvent.session_id == session_id)))
+        .scalars()
+        .all()
+    )
     assert len(events) == 1
     assert events[0].body == "Well met."
     assert events[0].actor_user_id == user.id
@@ -167,6 +176,155 @@ async def test_broadcast_reaches_other_sockets_including_leave(
     assert ("presence", "leave") in events
     # room is empty of the joiner afterward; observer remains
     assert joiner not in [s for s in room._rooms.get(session_id, {})]
+
+
+async def test_roll_and_ooc_frames_persist_with_their_kinds(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    user, session_id = await _member_session(
+        session, clerk_id="clerk_r", email="r@example.com", name="Roller"
+    )
+    token = mint_token(sub="clerk_r", email="r@example.com", name="Roller")
+    ws = FakeWebSocket(
+        token=token,
+        incoming=[
+            {
+                "type": "roll",
+                "body": "Athletics check",
+                "payload": {"total": 17, "notation": "1d20+5"},
+            },
+            {"type": "ooc", "body": "brb, coffee"},
+        ],
+    )
+
+    await handle_connection(ws, session_id, session, clerk_verifier, SessionHub())
+
+    # both frames were echoed with a seq (so clients can order/dedupe)
+    echoed = [m for m in ws.sent if m.get("type") in ("roll", "ooc")]
+    assert [m["type"] for m in echoed] == ["roll", "ooc"]
+    assert echoed[0]["payload"] == {"total": 17, "notation": "1d20+5"}
+    assert echoed[0]["seq"] == 1 and echoed[1]["seq"] == 2
+
+    # both landed on the timeline with the right EventKind, actor attributed
+    events = (
+        (
+            await session.execute(
+                select(SessionEvent)
+                .where(SessionEvent.session_id == session_id)
+                .order_by(SessionEvent.seq)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [e.kind for e in events] == [EventKind.roll, EventKind.out_of_character]
+    assert events[0].payload == {"total": 17, "notation": "1d20+5"}
+    assert events[0].actor_user_id == user.id
+    assert events[1].body == "brb, coffee"
+
+
+async def test_ephemeral_frames_relay_without_persisting(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    _user, session_id = await _member_session(
+        session, clerk_id="clerk_e", email="e@example.com", name="Ephemeral"
+    )
+    room = SessionHub()
+    observer = FakeWebSocket(token=None)
+    room.join(session_id, observer, Presence(user_id=str(uuid.uuid4()), display_name="Obs"))
+
+    token = mint_token(sub="clerk_e", email="e@example.com", name="Ephemeral")
+    joiner = FakeWebSocket(
+        token=token, incoming=[{"type": "initiative", "order": ["Thora", "Goblin"]}]
+    )
+    await handle_connection(joiner, session_id, session, clerk_verifier, room)
+
+    # the observer received the relayed frame with sender attribution...
+    relayed = [m for m in observer.sent if m.get("type") == "initiative"]
+    assert len(relayed) == 1
+    assert relayed[0]["order"] == ["Thora", "Goblin"]
+    assert relayed[0]["display_name"] == "Ephemeral"
+    # ...but nothing was persisted to the timeline
+    events = (
+        (await session.execute(select(SessionEvent).where(SessionEvent.session_id == session_id)))
+        .scalars()
+        .all()
+    )
+    assert events == []
+
+
+async def test_private_chat_reaches_only_the_dm_and_the_intended_player(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    """DATA-07: a characters-audience frame is not fanned out to the rest of the table."""
+    dm = await sync_user(
+        session, clerk_user_id="clerk_dm_k", email="dm_k@example.com", display_name="DM"
+    )
+    player = await sync_user(
+        session, clerk_user_id="clerk_pl_k", email="pl_k@example.com", display_name="Pip"
+    )
+    other = await sync_user(
+        session, clerk_user_id="clerk_ot_k", email="ot_k@example.com", display_name="Oak"
+    )
+    campaign = await create_campaign_with_owner(session, name="Table", owner=dm)
+    for member, email in ((player, player.email), (other, other.email)):
+        invite = await invite_player(session, campaign=campaign, email=email, invited_by=dm)
+        await accept_invite(session, token=invite.token, user=member)
+    game_session = await create_session(session, campaign=campaign)
+    pip = await create_character(session, campaign=campaign, name="Pip", player=player)
+    await create_character(session, campaign=campaign, name="Oak", player=other)
+
+    room = SessionHub()
+    dm_ws = FakeWebSocket(token=None)
+    other_ws = FakeWebSocket(token=None)
+    room.join(
+        game_session.id,
+        dm_ws,
+        Presence(
+            user_id=str(dm.id),
+            display_name="DM",
+            role=MembershipRole.dm,
+        ),
+    )
+    room.join(
+        game_session.id,
+        other_ws,
+        Presence(user_id=str(other.id), display_name="Oak"),
+    )
+
+    token = mint_token(sub="clerk_pl_k", email="pl_k@example.com", name="Pip")
+    joiner = FakeWebSocket(
+        token=token,
+        incoming=[
+            {
+                "type": "chat",
+                "body": "A passed note.",
+                "audience": "characters",
+                "visible_to": [str(pip.id)],
+            }
+        ],
+    )
+    await handle_connection(joiner, game_session.id, session, clerk_verifier, room)
+
+    def chats(ws: FakeWebSocket) -> list[Any]:
+        return [m for m in ws.sent if m.get("type") == "chat"]
+
+    assert [m["body"] for m in chats(dm_ws)] == ["A passed note."]
+    assert chats(other_ws) == []
+    assert [m["body"] for m in chats(joiner)] == ["A passed note."]
+
+    events = (
+        (
+            await session.execute(
+                select(SessionEvent).where(SessionEvent.session_id == game_session.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(events) == 1
+    assert events[0].audience is EventAudience.characters
+    assert events[0].visible_to == [str(pip.id)]
 
 
 # --- hub unit behavior -----------------------------------------------------

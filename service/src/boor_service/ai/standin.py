@@ -193,9 +193,7 @@ def decide_action(
     if getattr(response, "stop_reason", None) == "refusal":
         raise StandInError("model refused to produce a stand-in action")
 
-    tool_use = next(
-        (b for b in response.content if getattr(b, "type", None) == "tool_use"), None
-    )
+    tool_use = next((b for b in response.content if getattr(b, "type", None) == "tool_use"), None)
     if tool_use is None:
         raise StandInError("stand-in did not choose an action (no tool call)")
 
@@ -263,14 +261,10 @@ def _to_action(name: str, tool_input: dict[str, Any], actor_id: str) -> Proposed
     raise StandInError(f"unknown action tool: {name!r}")
 
 
-def _dispatch(
-    name: str, tool_input: dict[str, Any], rng: SupportsRandint | None
-) -> object | None:
+def _dispatch(name: str, tool_input: dict[str, Any], rng: SupportsRandint | None) -> object | None:
     """Run the allowed action through the real rules engine."""
     if name == "attack":
-        attack = mechanics.attack_roll(
-            tool_input["attack_bonus"], tool_input["target_ac"], rng=rng
-        )
+        attack = mechanics.attack_roll(tool_input["attack_bonus"], tool_input["target_ac"], rng=rng)
         damage = (
             mechanics.roll_damage(tool_input["damage"], critical=attack.is_critical, rng=rng)
             if attack.is_hit
@@ -278,9 +272,7 @@ def _dispatch(
         )
         return {"attack": attack, "damage": damage}
     if name == "ability_check":
-        return mechanics.ability_check(
-            tool_input.get("bonus", 0), dc=tool_input.get("dc"), rng=rng
-        )
+        return mechanics.ability_check(tool_input.get("bonus", 0), dc=tool_input.get("dc"), rng=rng)
     return None  # speak / move have no dice
 
 
@@ -296,8 +288,10 @@ def _summarize(name: str, tool_input: dict[str, Any], engine_result: object | No
             f"{attack.total}) for {damage.total} damage"
         )
     if name == "ability_check" and isinstance(engine_result, CheckResult):
-        outcome = "" if engine_result.is_success is None else (
-            " (success)" if engine_result.is_success else " (failure)"
+        outcome = (
+            ""
+            if engine_result.is_success is None
+            else (" (success)" if engine_result.is_success else " (failure)")
         )
         narration = tool_input.get("narration", "attempts a check")
         return f"{narration} — rolled {engine_result.total}{outcome}"
@@ -430,6 +424,26 @@ def event_payload(decision: StandInDecision) -> dict[str, Any]:
     return payload
 
 
+async def scoped_timeline_text(
+    session: AsyncSession,
+    *,
+    game_session: GameSession,
+    character: CharacterRow,
+) -> str:
+    """The session so far, as *this* character knows it (DATA-07).
+
+    The stand-in's only legal view of the record. A secret another PC took in a
+    private channel will not appear here. Demo/eval callers that don't have a
+    persisted character still pass a handwritten ``timeline_text`` to
+    :func:`decide_action` / :func:`act_on_turn` — production play must go
+    through this (or :func:`act_on_turn_for_character`).
+    """
+    events = await repository.timeline_for_character(
+        session, game_session=game_session, character=character
+    )
+    return repository.render_timeline(events)
+
+
 async def act_on_turn(
     session: AsyncSession,
     *,
@@ -444,6 +458,10 @@ async def act_on_turn(
 
     The persisted event always carries ``ai_generated=True`` (AI-08), including
     refusals — the log makes clear the AI acted and, when it declined, why.
+    ``timeline_text`` is the caller's responsibility: production play must pass
+    a character-scoped rendering (:func:`scoped_timeline_text`); the demo and
+    evals pass a handwritten scene. Prefer :func:`act_on_turn_for_character`
+    when a persisted character is available so the scope cannot be forgotten.
     """
     decision = decide_action(client, context, timeline_text=timeline_text, rng=rng, model=model)
     event = await repository.append_event(
@@ -465,11 +483,39 @@ async def act_on_turn(
     return decision, event
 
 
-def _system_prompt(context: StandInContext) -> str:
-    red_lines = (
-        "\n".join(f"- {rl.note or rl.kind.value}" for rl in context.red_lines)
-        or "- (none)"
+async def act_on_turn_for_character(
+    session: AsyncSession,
+    *,
+    game_session: GameSession,
+    character: CharacterRow,
+    client: SupportsMessages,
+    context: StandInContext,
+    rng: SupportsRandint | None = None,
+    model: str = DEFAULT_MODEL,
+) -> tuple[StandInDecision, SessionEvent]:
+    """Like :func:`act_on_turn`, but the timeline is scoped to ``character``.
+
+    This is the production path (DATA-07). The stand-in cannot see events
+    outside its character's visibility set, even if they are in the session
+    record. The action it then takes is itself a ``table`` event — the table
+    sees what the stand-in *does*, not what it *knew*.
+    """
+    timeline_text = await scoped_timeline_text(
+        session, game_session=game_session, character=character
     )
+    return await act_on_turn(
+        session,
+        game_session=game_session,
+        client=client,
+        context=context,
+        timeline_text=timeline_text,
+        rng=rng,
+        model=model,
+    )
+
+
+def _system_prompt(context: StandInContext) -> str:
+    red_lines = "\n".join(f"- {rl.note or rl.kind.value}" for rl in context.red_lines) or "- (none)"
     return (
         f"You are playing {context.character_name} in a live Dungeons & Dragons "
         "session, standing in for an absent player. Act and speak in character, "
