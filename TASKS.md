@@ -25,9 +25,18 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/decision 
 - [x] DATA-04 — Personality-profile + standing-instructions model (per character) — `db.models.PersonalityProfile` (one-per-character: `persona`, `standing_instructions`, `risk_tolerance` enum, JSONB `traits` for the AI-01 questionnaire) + `CharacterRedLine` persisting structured red lines. Red lines reuse the guardrail `RedLineKind`/`ActionType` enums and round-trip *straight back into* `check_action` (`repository.red_lines_for`), so the DB and the pure checker can't drift; ordered by `position` (first-violation-wins is preserved). `repository.set_personality_profile` (upsert) + `add_red_line`; migration `975c11e58f23`; 9 tests green.
 - [ ] DATA-05 — Provision Railway Postgres (co-located w/ service) + object storage for maps/assets. *(Decided: Railway Postgres — D-02)*
 - [x] DATA-06 — Alembic wired (async, reads `DATABASE_URL`); migrations for the DATA-01/03 schema + DATA-02/04 (`975c11e58f23`), all verified reversible (enum types managed explicitly; `alembic check` clean). **Seed data landed** — `boor_service.db.seed` (`uv run python -m boor_service.db.seed`) builds a demo campaign via the real invite→accept flow with two stand-in-ready characters (persisted sheets + profiles + red lines) and a session; 4 tests, verified end-to-end against a real Postgres.
+- [x] DATA-07 — **Per-character knowledge scoping** (`build-primer.md` §4.2 / the-ninth-toll
+      `truths_known`). Every `SessionEvent` carries `audience` (`table` | `characters` |
+      `dm`) + `visible_to` (character ids). Pure predicate in `boor_service.knowledge`
+      (shared by repository, `GET /log`, the WS hub, and the stand-in so they can't
+      drift). `timeline_for_character` is the stand-in's only legal view;
+      `act_on_turn_for_character` loads it. Human DMs see everything as *viewers*;
+      stand-ins never inherit that. Private WS frames fan out only to the DM + the
+      listed characters. Migration `d07a4c1e5c0e`. Existing chat/dice default to
+      `table`, so MILE-1 is unchanged. Substrate for private channels (§9).
 
 ### Auth & access (invite-only)
-- [~] AUTH-01 — Accounts + login (Clerk — D-03). **Service side landed**: `boor_service.auth` verifies Clerk session JWTs against the public JWKS (RS256, no Clerk secret server-side) via an injectable signing-key resolver, and `repository.sync_user` mirrors the identity locally on first login (email required — Clerk JWT template must expose it). `get_current_user` FastAPI dep + guarded `/me`. **Web-side Clerk sign-in UI + `CLERK_ISSUER`/`CLERK_JWKS_URL` env provisioning still TBD.**
+- [x] AUTH-01 — Accounts + login (Clerk — D-03). **Service side**: `boor_service.auth` verifies Clerk session JWTs against the public JWKS (RS256, no Clerk secret server-side) via an injectable signing-key resolver, and `repository.sync_user` mirrors the identity locally on first login (email required — Clerk session token must expose it). `get_current_user` FastAPI dep + guarded `/me`. **Web side landed & verified end-to-end**: `@clerk/nextjs` (Core 3) — `<ClerkProvider>` + `<Show when=…>` + Next 16 `web/src/proxy.ts` (`clerkMiddleware`), with `useAuth().getToken` forwarded as a Bearer header through the single `web/src/lib/auth.ts` seam (gated on the publishable key so keyless CI builds stay green). Clerk app is **invite-only**; the default session token is customized to carry `email`/`name`; `CLERK_ISSUER`/`CLERK_JWKS_URL` provisioned. **Verified live: signed-in `GET /me` → 200 with the mirrored user** (`email` + `display_name` populated).
 - [~] AUTH-02 — Campaign owner invites players by link/email — invite→accept invariants live in `repository` (DATA-01); **HTTP endpoints landed**: `POST /campaigns/{id}/invites` (DM-only, returns token) + `POST /invites/{token}/accept`. **Invite-send/accept UI (email delivery of the link) still TBD.**
 - [x] AUTH-03 — Roles: DM vs player; per-campaign membership — `auth.dependencies.current_membership` (403 for non-members) + `require_dm` (403 for players); wired into example routes (`GET /campaigns/{id}/members` any-member, `DELETE …/members/{uid}` DM-only). Tests cover owner=DM, non-member, player-refused, DM-allowed.
 
@@ -42,16 +51,16 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/decision 
 
 Goal: a group runs a full live session end-to-end with a human DM. **No AI yet.**
 
-- [~] VTT-01 — Realtime transport (self-hosted WebSockets, D-01); shared session room — `boor_service.realtime`: `SessionHub` (per-session socket registry + presence + resilient broadcast) and an authenticated handler wired at `WS /ws/sessions/{id}?token=<clerk-jwt>`. Handshake verifies the Clerk token (D-03) + campaign membership before joining; `chat` frames persist to the DATA-03 timeline and relay, other typed frames relay with sender attribution. 7 tests (auth closes 4401/4403/4404, presence, chat-persist, multi-socket fan-out) via a fake socket. **Client (web) + reconnect/heartbeat + broker for multi-instance still TBD.**
-- [ ] VTT-02 — Map surface: load a map image, pan/zoom
-- [ ] VTT-03 — Tokens: place/move PC/NPC/monster tokens, synced live to all present
-- [ ] VTT-04 — Dice UI wired to rules engine; results posted to the log
-- [ ] VTT-05 — Initiative / turn tracker for combat
-- [ ] VTT-06 — Chat: in-character + out-of-character channels; narration log
-- [ ] VTT-07 — Presence: who's here, whose turn it is
-- [ ] VTT-08 — Character-sheet view during play (read + basic edits)
-- [ ] VTT-09 — Mobile-friendly responsive layout for the table
-- [ ] MILE-1 — **Milestone:** friends play a real human-DM'd session end-to-end
+- [~] VTT-01 — Realtime transport (self-hosted WebSockets, D-01); shared session room — `boor_service.realtime`: `SessionHub` (per-session socket registry + presence + resilient broadcast) and an authenticated handler wired at `WS /ws/sessions/{id}?token=<clerk-jwt>`. Handshake verifies the Clerk token (D-03) + campaign membership before joining. **Durable timeline extended:** `chat`/`ooc`/`roll` frames now persist to the DATA-03 timeline (mapped to `in_character`/`out_of_character`/`roll`) and echo with a `seq`; other frames (initiative, typing) relay ephemerally. **DATA-07 fan-out:** persisted frames carry `audience`/`visible_to`; the hub delivers private events only to the DM + sockets whose characters are in the set (speaker always hears their own echo). **Session BFF landed:** `GET/POST /campaigns/{id}/sessions` (DM opens, member lists), `GET /sessions/{id}`, `GET /sessions/{id}/log` (viewer-scoped replay so a late joiner cannot see whispers they weren't in), `POST /sessions/{id}/end` — gated by new `GameSessionForMember`/`GameSessionForDM` deps; `repository.sessions_for_campaign` + `session_timeline` / `timeline_for_viewer`. **Web client (`ws.ts` sendChat/sendOoc/sendRoll, `useRoom` replay+dedupe) landed. Reconnect/heartbeat + broker for multi-instance still TBD.**
+- [ ] VTT-02 — Map surface: load a map image, pan/zoom *(deferred — D-04, post-MILE-1)*
+- [ ] VTT-03 — Tokens: place/move PC/NPC/monster tokens, synced live *(deferred — D-04, post-MILE-1)*
+- [~] VTT-04 — Dice UI wired to rules engine; results posted to the log — `components/table/DiceRoller.tsx`: quick dice + adv/dis + custom notation → `/dice/*` → result posted to the durable log via `sendRoll`. **Compile-verified (build+lint green); not yet exercised against a live service (needs Clerk / dev token).**
+- [~] VTT-05 — Initiative / turn tracker for combat — `InitiativeTracker.tsx`: DM builds the order + advances the turn, relayed to the table; ephemeral (not persisted). **Compile-verified only.**
+- [~] VTT-06 — Chat: IC + OOC channels; narration log — `Composer.tsx` (IC/OOC toggle) + `Log.tsx` (unified timeline feed, per-kind rendering, AI-attribution badge). **Compile-verified only.**
+- [~] VTT-07 — Presence: who's here — `Presence.tsx` off the room's presence frames. **Compile-verified only.** *(Whose-turn-it-is lives in the initiative tracker.)*
+- [~] VTT-08 — Character-sheet view during play (read) — `SheetPanel.tsx`: collapsible read-only party sheets (abilities/mods, HP, AC, proficiencies). **Read-only for MILE-1; edits deferred. Compile-verified only.**
+- [~] VTT-09 — Responsive layout for the table — `SessionRoom.tsx` uses a `lg:` two-column grid (log + tools sidebar). **Basic; needs a real mobile pass. Compile-verified only.**
+- [ ] MILE-1 — **Milestone:** friends play a real human-DM'd session end-to-end *(table UI code-complete for theater-of-the-mind per D-04; blocked on Clerk + Railway to run live — see NEEDS-FROM-YOU.md)*
 
 ## Phase 2 — AI stand-ins (THE CORE BET)
 
@@ -66,10 +75,45 @@ De-risk early with a thin prototype before polishing.
 - [x] AI-06 — Respect red-lines / autonomy bounds; refuse/avoid forbidden actions — pure enforcement layer `boor_service.ai.guardrails.check_action` (Allowed | Refused), 15 tests. Wired into `decide_action`: every proposed action is gated *before* the engine rolls; refusals are logged, not executed.
 - [ ] AI-07 — "AI is thinking" UX + latency budget so it never stalls the live table
 - [x] AI-08 — Attribution: every stand-in action is persisted with `ai_generated=True` on the `SessionEvent` (incl. refusals), so the timeline clearly marks AI-controlled actions.
-- [ ] AI-09 — Per-player post-session recap ("here's what your character did")
+- [ ] AI-09 — Per-player post-session recap ("here's what your character did").
+      **Primer §7.5 elevates this to a first-class output, not a log:** written in the
+      character's voice as decisions the character made and now lives with, delivered
+      *before* the player's next session. Flagged as the product's best marketing
+      surface (shareable artifact).
 - [ ] AI-10 — Profile learning: refine persona from that character's session history over time
 - [~] AI-11 — Thin prototype + friends playtest of stand-in believability (validate the bet). **Eval harness built** (`boor_service.evals`): scripted scenarios graded on mechanical validity, red-line adherence, and LLM-as-judge persona fidelity → scorecard (`python -m boor_service.evals`). **Live friends playtest still pending.**
+- [ ] AI-12 — **Consequence tiers** (`build-primer.md` §7.3). Extend the binary
+      red-line refuse (`ai/guardrails.check_action`, today: Allowed | Refused) into
+      graduated gating: free below the gate; **death / permanent injury / party-resource
+      loss above a threshold / betrayal of a PC / anything touching a stated boundary**
+      → *deferred*, requiring Regent + table consent (GOV-*). Also §7.2: bias standing
+      instructions toward **motives, not vetoes**. *(Thresholds are an open decision —
+      NEEDS-FROM-YOU.md §6.)*
 - [ ] MILE-2 — **Milestone:** a session runs with an absent player, AI covers, group is satisfied
+
+## Phase 2.5 — Governance & session zero (build-primer §6, §8)
+
+In the primer's v1 scope (§13) but absent from the current schema. Sequenced after
+the stand-in works, before the AI-DM phase that makes the Regent load-bearing.
+
+- [ ] GOV-01 — **Regent role** (§8): a human holding override authority over the AI DM.
+      Rotates each arc; removable by group supermajority (replaces any rating system).
+      New role beyond dm/player (`MembershipRole`).
+- [ ] GOV-02 — **Three override classes** (§8): *live ruling* (unilateral, instant,
+      logged, no vote) · *retcon* (binding table vote) · *safety* (unilateral, available
+      to **every** player, no quorum). Each override requires a written reason +
+      ethics-reflection friction; every override logged **publicly** to the group.
+- [ ] GOV-03 — **No player/Regent ratings anywhere** (§8, DECIDED) — enforce as a
+      standing product constraint; safety interventions never count against anyone.
+- [ ] ZERO-01 — **Session zero** (§6), five phases: table charter (incl. absence policy
+      + chaos-dial defaults) · solo persona interviews (async, private) · weaving
+      (AI-proposed inter-character bonds) · shakedown scene (highest-value training data)
+      · calibration (**not optional** — the alignment/trust loop). Feeds `PersonalityProfile`.
+- [ ] ZERO-02 — **Fiction-first character interview** (§5): interview about fiction, never
+      mechanics; rules engine translates fiction → legal build. Capture want/fear/line,
+      speech register + verbal tic, per-PC relationships, and **player-level boundaries**
+      (→ stand-in guardrails / AI-02). Single shared interface; reframed for experienced
+      players as "how you train your stand-in."
 
 ## Phase 3 — AI DM & swappable DM
 
@@ -82,7 +126,10 @@ De-risk early with a thin prototype before polishing.
 ## Phase 4 — Content pipeline
 
 - [ ] CONTENT-01 — DM authoring tools: campaign notes, NPCs, encounters, maps
-- [ ] CONTENT-02 — Import SRD-compatible published modules into runnable structure
+- [!] CONTENT-02 — Import SRD-compatible published modules into runnable structure.
+      **⚠️ CONFLICT: `build-primer.md` §3 forbids an ingestion pipeline for published
+      adventure PDFs ("single largest legal risk") and mandates original-only content.
+      Blocked pending your call — see NEEDS-FROM-YOU.md §6.**
 - [ ] CONTENT-03 — AI gap-fill generation (NPC / room / encounter on demand)
 - [ ] CONTENT-04 — Content library / reuse across sessions
 
@@ -108,7 +155,10 @@ See **`DECISIONS.md`** for full context on each.
 - [x] D-02 — ✅ Railway (service) + Railway Postgres, co-located; service-owns-all-data (BFF)
 - [x] D-03 — ✅ Clerk (direct at clerk.com); service verifies Clerk JWTs via JWKS
 - [x] D-01 — ✅ Self-hosted WebSockets on the FastAPI service
-- [!] D-04 — 🟡 How minimal is "minimal VTT" for MILE-1 (resist scope creep)
+- [x] D-04 — ✅ **Theater-of-the-mind** for MILE-1: chat (IC + OOC) + dice→log +
+      initiative/turn tracker + read-only sheet view + presence. **No map/tokens**
+      (VTT-02/03 deferred) — a map isn't needed to validate the north-star AI
+      stand-in bet, and it's the heaviest surface. Resist re-adding it pre-MILE-1.
 
 **Locked architecture (2026-08-14):** single Railway project — Next.js (Node) +
 FastAPI service + Railway Postgres, co-located; Vercel dropped. Service owns all

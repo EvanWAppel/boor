@@ -18,6 +18,25 @@ over HTTP/WS. Realtime is **self-hosted WebSockets on the service**. Auth is
 **Clerk** (provisioned directly at clerk.com), with the service verifying Clerk
 JWTs via JWKS on every HTTP/WS call.
 
+**Update (2026-08-23):** two canonical design docs landed — **`build-primer.md`**
+(product/architecture spec) and **`the-ninth-toll.md`** (the v1 campaign + an
+enumerable state schema). They **confirm** the locked architecture and the
+north-star bet, and add DECIDED principles now treated as canon:
+- **Model never holds mechanical state** (§4.1) — already how `ai/standin.py` works.
+- **Knowledge is scoped per *character*, not per campaign** (§4.2) — the primer's
+  "build it first". **Landed as DATA-07:** every `SessionEvent` has `audience`
+  (`table` / `characters` / `dm`) + `visible_to`; `boor_service.knowledge.is_visible`
+  is the single predicate. Stand-ins call `timeline_for_character` /
+  `act_on_turn_for_character` and never inherit DM omniscience. Human DMs still
+  see the full record as viewers. Private WS frames fan out only to intended
+  sockets. Default remains `table`, so MILE-1 theater-of-the-mind is unchanged.
+- **Original in-house campaigns only; no published-module ingestion** (§3) — this
+  **conflicts** with `CONTENT-02` and the "imported" content-source below; flagged
+  for your call in `NEEDS-FROM-YOU.md` §6.
+- Regent governance (§8), consequence tiers (§7.3), session zero (§6) — added to
+  `TASKS.md` (GOV-*, AI-12, ZERO-*). Five product OPEN items (§11) →
+  `NEEDS-FROM-YOU.md` §6; do not resolve unilaterally.
+
 ---
 
 ## ✅ Resolved 2026-08-14 (were the 🔴 blockers)
@@ -51,9 +70,13 @@ JWTs via JWKS on every HTTP/WS call.
 
 ## 🟡 Shaping, but not blocking yet
 
-### D-04 — How minimal is "minimal VTT" for the first playable milestone (MILE-1)?
-Define the smallest table that's fun: e.g. single map + tokens + dice + chat +
-initiative, no fog-of-war/measurement/lighting. Guard against scope creep.
+### D-04 — ✅ RESOLVED (2026-08-19): "minimal VTT" = theater-of-the-mind
+The first playable table is **chat (IC + OOC) + dice→log + initiative/turn tracker
++ read-only sheet view + presence**. **No map, no tokens** (VTT-02/03 deferred
+post-MILE-1). Rationale: a map is the heaviest surface and isn't needed to validate
+the north-star AI stand-in bet, which reasons over game state, not pixels. Guard
+against re-adding map/tokens before friends have played a theater-of-the-mind
+session. Table UI is code-complete; live run blocked on Clerk + Railway.
 
 ### Character model scope (feeds DATA-02)
 The current `Character` covers ability scores, skills, saves, and derived stats.
@@ -71,8 +94,9 @@ actually needs to play a character convincingly.
 
 - **AI model wiring** — provider/route for stand-in + DM reasoning (default:
   latest Claude via AI SDK / AI Gateway). Decide before Phase 2.
-- **Content sourcing** — where imported SRD-compatible modules come from, and
-  the authoring format. Decide before Phase 4.
+- **Content sourcing** — ⚠️ **now in conflict.** This said "authored + imported +
+  AI-generated," but `build-primer.md` §3 mandates **original in-house only** and
+  forbids module ingestion. Resolve before Phase 4 — see `NEEDS-FROM-YOU.md` §6.
 - **Voice** — deferred; revisit for absent-player immersion post-MVP.
 
 ---

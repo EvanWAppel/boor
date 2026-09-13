@@ -73,49 +73,70 @@ matches exactly — a trailing-slash mismatch is the usual gotcha.
 
 ## Step 4 — Set the service env vars
 
-Local dev (`service/.env` or your shell), and later Railway service variables:
+The service reads these from the **process environment** — it does **not** auto-load
+`service/.env` (there's no `load_dotenv`). So `export` them in your shell, prefix the
+command inline, or run `uv run --env-file .env uvicorn …`. A bare `.env` file alone
+does nothing.
 
 ```bash
-CLERK_ISSUER="https://your-app.clerk.accounts.dev"
-CLERK_JWKS_URL="https://your-app.clerk.accounts.dev/.well-known/jwks.json"
-# CLERK_AUDIENCE=...   # only if you added an aud claim
+export CLERK_ISSUER="https://your-app.clerk.accounts.dev"
+export CLERK_JWKS_URL="https://your-app.clerk.accounts.dev/.well-known/jwks.json"
+export DATABASE_URL="postgresql://user:pass@host:5432/dbname"   # a REAL URL, never "..."
+# export CLERK_AUDIENCE=...   # only if you added an aud claim
 ```
 
-`DATABASE_URL` must also be set (the auth routes hit Postgres). The rules
+`DATABASE_URL` must be a real, parseable Postgres URL (the auth routes hit Postgres);
+a placeholder like `...` or an empty value throws `sqlalchemy ArgumentError` at engine
+creation and every authed route 500s **before** the token is checked. The rules
 endpoints (`/dice`, `/checks`, `/combat`) stay open and need none of this.
 
-## Step 5 — Wire the Next.js app (`web/`)
+Apply the schema before first use (and after pulling new migrations):
 
-The web app is currently a bare Next.js 16 app with no Clerk. Tomorrow:
+```bash
+uv run alembic upgrade head    # requires DATABASE_URL to be set/exported
+```
 
-1. Install the SDK:
-   ```bash
-   cd web && pnpm add @clerk/nextjs
-   ```
-2. Web env vars (`web/.env.local`) — **secret key is server-only, never `NEXT_PUBLIC_`:**
+The same three vars go into Railway's **service** variables later.
+
+## Step 5 — Wire the Next.js app (`web/`) — ✅ DONE
+
+`@clerk/nextjs` (v7, "Core 3") is installed and wired. The one manual bit left is
+env vars (below). What's wired, and two version gotchas that bit us:
+
+1. **SDK installed:** `@clerk/nextjs@7.x` (`cd web && pnpm add @clerk/nextjs`).
+2. **Middleware is `web/src/proxy.ts`, not `middleware.ts`.** Next.js 16 renamed
+   `middleware` → **proxy** (`middleware.ts` still works but is deprecated). Clerk's
+   own rule: `proxy.ts` on Next 16+, `middleware.ts` on 15 and below — same body
+   (`export default clerkMiddleware()`).
+3. **`<Show when="…">`, not `<SignedIn>/<SignedOut>`.** Clerk Core 3 removed the
+   `<SignedIn>`, `<SignedOut>`, and `<Protect>` components — they now *throw at build
+   time* — in favour of a single `<Show when="signed-in|signed-out">` (with an
+   optional `fallback`). `ClerkProvider`, `SignInButton`, `SignUpButton`,
+   `UserButton`, and `useAuth()` are unchanged. `<ClerkProvider>` goes **inside
+   `<body>`** in `web/src/app/layout.tsx`.
+4. **Everything is gated on `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`** (a build-time
+   constant). Key present (Railway, local `.env.local`) → full Clerk. Key absent
+   (CI's `pnpm build`, or before you add `.env.local`) → the app falls back to the
+   dev-token seam so CI stays green. The single swap point is `web/src/lib/auth.ts`
+   (`useToken()` → `useAuth().getToken`); `api.ts` / `ws.ts` already forward the
+   token as a `Bearer` header, so no other files change.
+5. **Web env vars** — create `web/.env.local` (secret key is server-only, never
+   `NEXT_PUBLIC_`):
    ```bash
    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="pk_test_..."
    CLERK_SECRET_KEY="sk_test_..."
-   NEXT_PUBLIC_API_BASE_URL="http://localhost:8000"   # the FastAPI service
+   NEXT_PUBLIC_API_BASE_URL="http://localhost:8000"   # the FastAPI service (or its Railway URL)
    ```
-3. Wrap the app in `<ClerkProvider>` (in `web/src/app/layout.tsx`) and add
-   `clerkMiddleware()` in `web/middleware.ts` per Clerk's Next.js App Router quickstart.
-   Add sign-in / sign-up routes (`<SignIn/>`, `<SignUp/>` or hosted pages).
-4. **Forward the token to the service.** Every call to the FastAPI service must send
-   the Clerk token as a Bearer header. Client-side:
-   ```ts
-   import { useAuth } from "@clerk/nextjs";
-   const { getToken } = useAuth();
-   const token = await getToken();               // or getToken({ template: "boor-api" }) if you used a named template
-   await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/me`, {
-     headers: { Authorization: `Bearer ${token}` },
-   });
-   ```
-   Server components / route handlers can use `auth().getToken()` instead.
+   No JWT template name is needed: `getToken()` returns the *default* session token,
+   which now carries `email`/`name` from Step 2.
 
 ## Step 6 — Verify end-to-end
 
-1. Start the service: `cd service && CLERK_ISSUER=... CLERK_JWKS_URL=... DATABASE_URL=... uv run uvicorn boor_service.api:app --reload`
+1. Start the service (with the vars **exported** from Step 4 — do not paste literal
+   `...`; that's what makes every authed route 500):
+   ```bash
+   cd service && uv run uvicorn boor_service.api:app --reload
+   ```
 2. Sign in on the web app, grab a token (log it, or copy from the network tab).
 3. Hit the service directly:
    ```bash
@@ -151,3 +172,8 @@ All require `Authorization: Bearer <clerk-token>`:
 - [ ] `CLERK_SECRET_KEY` is server-only; only the publishable key is `NEXT_PUBLIC_`.
 - [ ] Invite-only restriction is on, so random sign-ups can't create accounts.
 - [ ] Clock skew: the verifier allows 30s leeway; larger drift will reject tokens.
+- [ ] Next 16: middleware lives in `proxy.ts` (not `middleware.ts`).
+- [ ] Clerk Core 3: use `<Show when=…>` (not `<SignedIn>/<SignedOut>`, which now throw).
+- [ ] `pk_test_`/`sk_test_` are a **Development** instance. A real shared Railway URL
+      eventually needs a **Production** instance (own `pk_live_`/`sk_live_`, custom
+      domain + DNS) with Steps 1–2 re-applied. Dev keys work for testing meanwhile.
