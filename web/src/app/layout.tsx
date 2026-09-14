@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Link from "next/link";
 import {
   ClerkProvider,
   Show,
@@ -31,15 +32,23 @@ export const metadata: Metadata = {
 
 function AuthHeader() {
   return (
-    <header className="flex items-center justify-end gap-3 border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
-      {/* Core 3 replaced <SignedIn>/<SignedOut> with a single <Show when=...>. */}
-      <Show when="signed-out">
-        <SignInButton />
-        <SignUpButton />
-      </Show>
-      <Show when="signed-in">
-        <UserButton />
-      </Show>
+    <header className="flex items-center justify-between gap-3 border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
+      <Link
+        href="/"
+        className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50"
+      >
+        boor
+      </Link>
+      <div className="flex items-center gap-3">
+        {/* Core 3 replaced <SignedIn>/<SignedOut> with a single <Show when=...>. */}
+        <Show when="signed-out">
+          <SignInButton />
+          <SignUpButton />
+        </Show>
+        <Show when="signed-in">
+          <UserButton />
+        </Show>
+      </div>
     </header>
   );
 }
