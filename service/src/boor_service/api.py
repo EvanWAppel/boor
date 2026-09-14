@@ -16,10 +16,12 @@ Run locally with: ``uv run uvicorn boor_service.api:app --reload``.
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -60,6 +62,24 @@ app = FastAPI(
     title="boor rules service",
     version="0.1.0",
     summary="HTTP surface over the D&D 5e SRD rules engine.",
+)
+
+# CORS: the browser calls this service from the web app's origin, which is a
+# different Railway domain in production. Bearer tokens travel in the Authorization
+# header (not cookies), so credentials stay off and an explicit origin allowlist is
+# enough. Set CORS_ALLOW_ORIGINS to a comma-separated list of web origins in prod
+# (e.g. https://boor.up.railway.app); defaults to the local Next dev origin.
+_cors_origins = [
+    origin.strip()
+    for origin in os.environ.get("CORS_ALLOW_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

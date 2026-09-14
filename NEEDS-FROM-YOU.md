@@ -27,22 +27,29 @@ Still to do for **production**: a Clerk **Production** instance (own `pk_live_`/
 The current `pk_test_`/`sk_test_` are a development instance (fine for local + Railway
 testing).
 
-## 2. Railway hosting + Postgres (DATA-05, SETUP-05) — `[ ]`
+## 2. Railway hosting + Postgres (DATA-05, SETUP-05) — `[ ]`  → **full runbook in `DEPLOY.md`**
 
-Locked architecture: one Railway project — Next.js (Node) + FastAPI service +
-Railway Postgres, co-located (see `DECISIONS.md`).
+**Scaffolding is done and locally verified** — Dockerfiles for both services, the
+migration release step, healthchecks, and CORS are all written. Both images
+**build and boot** on my machine (`service` → `/health` ok + a real dice roll +
+`/me` 401; `web` → `/` 200). What's left is the parts only you can do:
 
 - [ ] Create the Railway project and add a **Postgres** plugin.
-- [ ] Deploy the FastAPI service (`service/`); Railway injects `DATABASE_URL`.
-- [ ] Set the service env vars there: `DATABASE_URL` (auto), `CLERK_ISSUER`,
-      `CLERK_JWKS_URL` (+ `CLERK_AUDIENCE` if used).
-- [ ] Run migrations on deploy: `uv run alembic upgrade head` (release step).
+- [ ] Add the **service** (root dir `/service`) — `railway.json` auto-runs
+      `alembic upgrade head` on deploy and healthchecks `/health`. Set vars:
+      `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `CLERK_ISSUER`, `CLERK_JWKS_URL`,
+      and `CORS_ALLOW_ORIGINS` = the web URL (step below).
+- [ ] Add the **web** (root dir `/web`) — set **build-time** `NEXT_PUBLIC_API_BASE_URL`
+      (= the service URL) + `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, and **runtime**
+      `CLERK_SECRET_KEY`. Deploy service first so you have its URL.
+- [ ] Back-fill the service's `CORS_ALLOW_ORIGINS` with the web domain, redeploy.
 - [ ] Optionally seed a demo table once: `uv run python -m boor_service.db.seed`.
-- [ ] Object storage for maps/assets (VTT) — pick a bucket (Railway volume or S3-
-      compatible) when we get to maps. Not needed yet.
+- ⚠️ **`ANTHROPIC_API_KEY` is NOT needed for MILE-1** (human-DM'd). It's only for
+  the AI stand-in and it hits the personal-key guardrail — mint a scoped key in a
+  dedicated capped Anthropic workspace before wiring it, never your personal key.
+- [ ] Object storage for maps/assets (VTT) — not needed until maps (post-MILE-1).
 
-I can write the Railway config / Dockerfile / release command once you've created
-the project (or now, as a proposal you approve).
+**Every step, with exact values, is in `DEPLOY.md`.**
 
 ## 3. Web app ↔ service wiring — partly on me `[~]`
 
@@ -63,9 +70,19 @@ the project (or now, as a proposal you approve).
   (sign-in/up + user button) + Next 16 `proxy.ts` (`clerkMiddleware`), and the dev
   token in `auth.ts` swapped for `useAuth().getToken` (gated on the publishable key
   so keyless CI builds stay green). Verified: signed-in `/me` → 200.
-- **Left:** campaign/session **picker** screens (create/list a campaign, open a
-  session, then link into the existing `/table/[sessionId]`). No external setup —
-  buildable now; the next step toward MILE-1.
+- **Done (the front door — NAV-01):** the whole navigation flow now exists so a
+  signed-in user has somewhere to go: home (`/`) shows your campaigns + a create
+  form; `/campaigns/[id]` is the campaign hub (start/end sessions as DM, enter any
+  session → the existing `/table/[sessionId]`, the roster with a DM invite form that
+  mints a copyable `/invite/[token]` link, and characters with a minimal
+  create-a-PC form); `/invite/[token]` redeems an invite and lands the player in the
+  campaign. `pnpm lint` + `next build` green; the backing API flow is covered by the
+  service suite (33 API tests green on real Postgres). Compile/typecheck-verified in
+  the browser sense (no-browser rule) — the last live gap is running it on Railway.
+- **Left toward MILE-1:** nothing *buildable without you* — the code path from
+  sign-in → campaign → session → live table is complete. What remains is **deploy**
+  (§2 Railway) so friends can actually reach it, and optionally invite **email
+  delivery** (today the DM copies the link and sends it themselves).
 
 ## 4. CI / GitHub (SETUP-03) — mostly on me `[~]`
 

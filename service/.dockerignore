@@ -1,0 +1,15 @@
+# Keep the build context small and secrets out of the image.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ty_cache/
+.git/
+.gitignore
+# Never bake local secrets into the image — Railway provides env at runtime.
+.env
+.env.*
+# Tests aren't needed in the runtime image (they use testcontainers, not this DB).
+tests/
