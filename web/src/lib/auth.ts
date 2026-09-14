@@ -37,16 +37,35 @@ export function readDevToken(): string | null {
   return process.env.NEXT_PUBLIC_DEV_TOKEN ?? null;
 }
 
-/** Clerk-backed token getter — the real path once a publishable key is set. */
-function useClerkToken(): TokenGetter {
-  const { getToken } = useAuth();
-  return getToken;
+/** Auth readiness + identity, provider-agnostic (Clerk when keyed, else dev token). */
+export interface AuthSession {
+  /** Stable getter for the bearer token (null when signed out / no dev token). */
+  getToken: TokenGetter;
+  /** False until the auth provider has resolved the current session. */
+  isLoaded: boolean;
+  /** Whether there is a signed-in user (or a dev token, in the keyless path). */
+  isSignedIn: boolean;
 }
 
-/** Dev-token getter — used in CI/builds and before Clerk is wired locally. */
-function useDevToken(): TokenGetter {
-  return useCallback(() => readDevToken(), []);
+/** Clerk-backed session — the real path once a publishable key is set. */
+function useClerkSession(): AuthSession {
+  const { getToken, isLoaded, isSignedIn } = useAuth();
+  return { getToken, isLoaded, isSignedIn: Boolean(isSignedIn) };
 }
 
-/** A stable token getter for the current user (Clerk when configured, else dev). */
-export const useToken: () => TokenGetter = CLERK_ENABLED ? useClerkToken : useDevToken;
+/** Dev-token session — used in CI/builds and before Clerk is wired locally. */
+function useDevSession(): AuthSession {
+  const getToken = useCallback(() => readDevToken(), []);
+  // Dev token is resolved once at load; readiness is immediate.
+  return { getToken, isLoaded: true, isSignedIn: Boolean(readDevToken()) };
+}
+
+/** The current auth session (Clerk when configured, else the dev-token seam). */
+export const useAuthSession: () => AuthSession = CLERK_ENABLED
+  ? useClerkSession
+  : useDevSession;
+
+/** A stable token getter for the current user — used by useApi / useRoom. */
+export function useToken(): TokenGetter {
+  return useAuthSession().getToken;
+}
