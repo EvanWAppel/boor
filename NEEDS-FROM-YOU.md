@@ -1,3 +1,21 @@
+# Current handoff — 2026-09-26
+
+Railway is provisioned and the live app is running. The historical checklist below
+predates that verification. Current remaining user steps:
+
+1. Sign in at https://web-production-0e6881.up.railway.app/.
+2. Invite Christine to the boor Clerk application, then create a campaign invitation
+   for the same email and send her the generated link. See PLAYTEST.md.
+3. Complete the human-DM friends playtest; this is what closes MILE-1.
+4. Confirm a dedicated capped Anthropic workspace key before enabling live AI turns.
+5. Resolve the product decisions listed in section 6 before building those features.
+
+The table now has reconnect/history recovery, persisted initiative, and the basic
+AI profile/control/turn integration. Local browser checks use disposable accounts
+and a scripted model; they do not replace a real friends/live-model playtest.
+
+---
+
 # Things I need from you
 
 The single checklist of steps only **you** can do — external accounts, secrets,

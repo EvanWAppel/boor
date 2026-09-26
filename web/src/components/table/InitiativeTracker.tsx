@@ -1,6 +1,6 @@
 // Initiative / turn tracker (VTT-05). The DM builds the order and advances the
 // turn; the state is relayed to everyone so the whole table sees whose turn it is.
-// Ephemeral by design — combat order doesn't outlive the encounter.
+// Persisted in the session timeline so refreshes and late joins recover it.
 
 "use client";
 

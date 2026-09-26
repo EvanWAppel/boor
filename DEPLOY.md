@@ -1,6 +1,10 @@
 # Deploying boor to Railway
 
-Everything is scaffolded to deploy. This is the runbook for the parts only you can
+The web and service are deployed as of 2026-09-26. Public URLs:
+- Web: https://web-production-0e6881.up.railway.app/
+- Service: https://service-production-6e01.up.railway.app/health
+
+The instructions below also describe recreating the deployment. This is the runbook for the parts only you can
 do (create the Railway project, paste secrets). The Dockerfiles, migration release
 step, healthchecks, and CORS are already wired and locally verified — see the
 "What's already done" section at the bottom.
@@ -34,8 +38,10 @@ time. So: **deploy `service` first, copy its public domain, then build `web`.**
 ## 2. Deploy the `service`
 
 1. **+ New → GitHub Repo →** this repo. In the service's **Settings → Root
-   Directory**, set **`/service`**. Railway auto-detects `service/railway.json`
-   (Dockerfile builder + healthcheck `/health` + the migration pre-deploy step).
+   Directory**, set **`/service`**. Set builder to Dockerfile, Dockerfile path to `Dockerfile`, healthcheck to
+   `/health`, and pre-deploy command to `uv run alembic upgrade head`. Verify these
+   settings in the actual deployment manifest; do not assume the nested JSON file
+   was read.
 2. **Variables** (Settings → Variables):
    - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`  ← reference, not a literal
    - `CLERK_ISSUER` = `https://<your-clerk-instance>.clerk.accounts.dev`
@@ -55,8 +61,7 @@ time. So: **deploy `service` first, copy its public domain, then build `web`.**
 
 ## 3. Deploy the `web`
 
-1. **+ New → GitHub Repo →** same repo, **Root Directory `/web`** (detects
-   `web/railway.json`).
+1. **+ New → GitHub Repo →** same repo, **Root Directory `/web`** and set Dockerfile path to `Dockerfile` and healthcheck to `/`.
 2. **Build-time** variables — these are inlined into the client bundle, so they must
    be set **before/at build** (Railway passes matching service variables to Docker
    `ARG`s):
@@ -102,3 +107,20 @@ re-apply the session-token customization (email/name claims) — see `CLERK-SETU
   clean deploy silently fail. Covered by `tests/test_cors.py`.
 - `DATABASE_URL` is normalized to `asyncpg` by both the app and Alembic, so Railway's
   stock `postgresql://` URL works as-is.
+
+## Deployment lessons (2026-09-26)
+
+- Include `https://` in both `NEXT_PUBLIC_API_BASE_URL` and `CORS_ALLOW_ORIGINS`.
+- Generic BuildKit cache IDs (`uv`, `pnpm`) fail Railway Dockerfile validation.
+  These Dockerfiles use portable Docker layer caching instead. Railway-specific
+  cache mounts require service-specific IDs: https://docs.railway.com/builds/dockerfiles
+- Railway now deprecates `railway.json`/`railway.toml`; current existing files are
+  retained as legacy references, but the live settings were explicitly configured
+  through the service API. Migrate to `.railway/railway.ts` before the documented
+  2026-12-01 cutoff: https://docs.railway.com/infrastructure-as-code
+- Keep one service replica/process: WebSocket rooms and in-flight AI turn exclusion
+  are process-local. A broker/distributed lock is required before scaling out.
+- AI execution is opt-in: `ENABLE_STANDINS=1` plus a dedicated capped workspace key;
+  profile editing and human-DM play do not need the key. See `PLAYTEST.md`.
+- CLI snapshot deployments include code that may not yet be on `main`. Merge the
+  reviewed changes before the next GitHub autodeploy to avoid reverting them.

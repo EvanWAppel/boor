@@ -17,7 +17,7 @@ export default function DiceRoller({
   disabled,
 }: {
   api: ApiClient | null;
-  onRoll: (body: string, payload: Record<string, unknown>) => void;
+  onRoll: (body: string, payload: Record<string, unknown>) => boolean;
   disabled?: boolean;
 }) {
   const [notation, setNotation] = useState("1d20");
@@ -37,12 +37,13 @@ export default function DiceRoller({
       } else {
         result = await api.rollNotation(n);
       }
-      onRoll(label, {
+      const sent = onRoll(label, {
         notation: result.notation,
         total: result.total,
         dice: result.dice,
         dropped: result.dropped,
       });
+      if (!sent) setError(`Rolled ${result.total}, but the connection dropped before it could be posted.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "roll failed");
     } finally {

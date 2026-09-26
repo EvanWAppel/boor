@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import type { Character, GameSession, MembershipRole } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 import { useRoom } from "@/lib/useRoom";
+import { useAuthSession } from "@/lib/auth";
 import { WS_FORBIDDEN, WS_NOT_FOUND, WS_UNAUTHORIZED } from "@/lib/ws";
 
 import Composer from "./Composer";
@@ -20,6 +21,7 @@ import InitiativeTracker from "./InitiativeTracker";
 import Log from "./Log";
 import Presence from "./Presence";
 import SheetPanel from "./SheetPanel";
+import StandInPanel from "./StandInPanel";
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -34,6 +36,7 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 
 function statusLabel(status: string, closeCode: number | null): string {
   if (status === "open") return "Connected";
+  if (status === "reconnecting") return "Reconnecting…";
   if (status === "connecting") return "Connecting…";
   if (closeCode === WS_UNAUTHORIZED) return "Not signed in";
   if (closeCode === WS_FORBIDDEN) return "Not a member of this campaign";
@@ -42,11 +45,19 @@ function statusLabel(status: string, closeCode: number | null): string {
 }
 
 export default function SessionRoom({ sessionId }: { sessionId: string }) {
+  const auth = useAuthSession();
+  if (!auth.isLoaded) return <p className="p-6">Loading your session…</p>;
+  if (!auth.isSignedIn) return <p className="p-6">Sign in to enter this table.</p>;
+  return <SessionRoomContent key={`${sessionId}:${auth.userId}`} sessionId={sessionId} />;
+}
+
+function SessionRoomContent({ sessionId }: { sessionId: string }) {
   const api = useApi();
   const room = useRoom(sessionId, api);
 
   const [session, setSession] = useState<GameSession | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [myId, setMyId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<MembershipRole | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -65,6 +76,7 @@ export default function SessionRoom({ sessionId }: { sessionId: string }) {
         ]);
         if (cancelled) return;
         setCharacters(chars);
+        setMyId(me.id);
         setMyRole(members.find((m) => m.user_id === me.id)?.role ?? null);
       } catch (e) {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : "failed to load");
@@ -136,12 +148,17 @@ export default function SessionRoom({ sessionId }: { sessionId: string }) {
           <Panel title="Initiative">
             <InitiativeTracker
               initiative={room.initiative}
-              canEdit={isDm}
+              canEdit={isDm && connected}
               onChange={room.setInitiative}
             />
           </Panel>
           <Panel title="At the table">
             <Presence present={room.present} />
+          </Panel>
+          <Panel title="AI stand-ins">
+            <StandInPanel api={api} sessionId={sessionId} characters={characters}
+              myId={myId} isDm={isDm} connected={connected && session?.status === "active"}
+              entries={room.entries} thinking={room.thinking} />
           </Panel>
           <Panel title="Party">
             <SheetPanel characters={characters} />

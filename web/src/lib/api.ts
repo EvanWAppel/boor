@@ -119,6 +119,13 @@ export function createApiClient({ baseUrl, getToken }: ApiClientOptions) {
     addRedLine: (characterId: string, redLine: RedLineInput) =>
       request<RedLine>("POST", `/characters/${characterId}/red-lines`, redLine),
 
+    saveStandInProfile: (characterId: string, profile: ProfileInput & { red_lines: RedLineInput[] }) =>
+      request<Profile>("PUT", `/characters/${characterId}/standin-profile`, profile),
+    setStandIn: (sessionId: string, characterId: string, enabled: boolean) =>
+      request("PUT", `/sessions/${sessionId}/standins/${characterId}`, { enabled }),
+    takeStandInTurn: (sessionId: string, characterId: string, requestId: string) =>
+      request("POST", `/sessions/${sessionId}/standins/${characterId}/turn`, { request_id: requestId }),
+
     // play sessions (the theater-of-the-mind table)
     listSessions: (campaignId: string) =>
       request<GameSession[]>("GET", `/campaigns/${campaignId}/sessions`),

@@ -25,11 +25,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from boor_service import mechanics, realtime
 from boor_service.ai.actions import ActionType
 from boor_service.ai.guardrails import RedLine, RedLineKind
+from boor_service.ai.table import router as standin_router
 from boor_service.auth.dependencies import (
     CharacterForEditor,
     CharacterForMember,
@@ -46,6 +48,7 @@ from boor_service.db import repository
 from boor_service.db.models import (
     Campaign,
     Character,
+    CharacterRedLine,
     EventAudience,
     EventKind,
     GameSession,
@@ -612,6 +615,24 @@ async def list_red_lines(character: CharacterForMember, session: SessionDep) -> 
     return [_red_line_out(rl) for rl in red_lines]
 
 
+class StandInProfileIn(ProfileIn):
+    red_lines: list[RedLineIn] = []
+
+
+@app.put("/characters/{character_id}/standin-profile", response_model=ProfileOut)
+async def save_standin_profile(
+    body: StandInProfileIn, character: CharacterForEditor, session: SessionDep
+) -> ProfileOut:
+    """Save persona and ordered constraints together in one transaction."""
+    profile = await set_profile(body, character, session)
+    await session.execute(delete(CharacterRedLine).where(
+        CharacterRedLine.character_id == character.id
+    ))
+    for line in body.red_lines:
+        await add_red_line(line, character, session)
+    return profile
+
+
 # --- play sessions + timeline (DATA-03; the theater-of-the-mind table) ------
 # A session is the live room friends join for MILE-1. The DM opens one; any member
 # lists/reads them and replays the timeline to catch up on join. Realtime frames
@@ -745,3 +766,6 @@ async def session_ws(
     see :mod:`boor_service.realtime`.
     """
     await realtime.handle_connection(websocket, session_id, session, verifier, realtime.hub)
+
+
+app.include_router(standin_router)

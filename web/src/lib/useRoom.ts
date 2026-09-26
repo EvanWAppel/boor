@@ -5,21 +5,21 @@
 // On connect it replays the durable timeline (GET /sessions/{id}/log) so a late
 // joiner sees everything that already happened, then layers live frames on top,
 // deduped by `seq`. Chat (IC), out-of-character, and dice rolls are timeline-backed
-// (they carry a `seq`); initiative is an ephemeral relayed frame the DM drives.
+// (they carry a `seq`); initiative is persisted and replayed by the server.
 
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ApiClient } from "./api";
-import { useToken } from "./auth";
+import { useAuthSession } from "./auth";
+import { maintainRoom, type ConnectionStatus } from "./roomConnection";
 import { API_BASE_URL } from "./useApi";
 import type { EventAudience, EventKind } from "./types";
 import {
   connectSessionRoom,
   type PresenceEntry,
   type RoomMessage,
-  type SessionRoom,
 } from "./ws";
 
 /** A normalized, renderable line in the shared log (history or live, unified). */
@@ -33,13 +33,13 @@ export interface LogEntry {
   audience: EventAudience;
 }
 
-/** The DM-driven turn order, relayed to the table (ephemeral, not persisted). */
+/** The DM-driven turn order, relayed to the table (persisted in the session timeline). */
 export interface InitiativeState {
   order: string[];
   activeIndex: number;
 }
 
-export type RoomStatus = "connecting" | "open" | "closed" | "error";
+export type RoomStatus = ConnectionStatus;
 
 /** The frame types the service persists + echoes with a `seq`, mapped to a kind. */
 const FRAME_KIND: Record<string, EventKind> = {
@@ -55,21 +55,23 @@ export interface Room {
   entries: LogEntry[];
   present: PresenceEntry[];
   initiative: InitiativeState | null;
-  sendChat: (body: string) => void;
-  sendOoc: (body: string) => void;
-  sendRoll: (body: string, payload: Record<string, unknown>) => void;
+  thinking: string[];
+  sendChat: (body: string) => boolean;
+  sendOoc: (body: string) => boolean;
+  sendRoll: (body: string, payload: Record<string, unknown>) => boolean;
   setInitiative: (state: InitiativeState) => void;
 }
 
 export function useRoom(sessionId: string, api: ApiClient | null): Room {
-  const getToken = useToken();
+  const { getToken, isLoaded, isSignedIn } = useAuthSession();
   const [status, setStatus] = useState<RoomStatus>("connecting");
   const [closeCode, setCloseCode] = useState<number | null>(null);
   const [present, setPresent] = useState<PresenceEntry[]>([]);
+  const [thinking, setThinking] = useState<string[]>([]);
   const [initiative, setInitiativeState] = useState<InitiativeState | null>(null);
   // Timeline entries keyed by seq so history and live frames dedupe cleanly.
   const [bySeq, setBySeq] = useState<Map<number, LogEntry>>(() => new Map());
-  const roomRef = useRef<SessionRoom | null>(null);
+  const roomRef = useRef<ReturnType<typeof maintainRoom> | null>(null);
 
   const upsert = useCallback((entry: LogEntry) => {
     setBySeq((prev) => {
@@ -80,12 +82,18 @@ export function useRoom(sessionId: string, api: ApiClient | null): Room {
     });
   }, []);
 
+  const initiativeSeq = useRef(0);
+
   const onMessage = useCallback(
     (message: RoomMessage) => {
       // RelayMessage's `type: string` defeats discriminated-union narrowing, so
       // read fields off a permissive frame view and validate each one by hand.
       const m = message as {
         type: string;
+        kind?: EventKind;
+        character_id?: string;
+        thinking?: boolean;
+        ai_generated?: boolean;
         present?: PresenceEntry[];
         order?: unknown;
         activeIndex?: unknown;
@@ -96,18 +104,25 @@ export function useRoom(sessionId: string, api: ApiClient | null): Room {
         audience?: unknown;
       };
 
+      if (m.type === "standin_status" && m.character_id) {
+        const id = m.character_id;
+        setThinking((prev) => m.thinking ? [...new Set([...prev, id])] : prev.filter(c => c !== id));
+        return;
+      }
       if (m.type === "presence") {
         setPresent(m.present ?? []);
         return;
       }
       if (m.type === "initiative") {
+        if (typeof m.seq !== "number" || m.seq <= initiativeSeq.current) return;
+        initiativeSeq.current = m.seq;
         setInitiativeState({
           order: Array.isArray(m.order) ? (m.order as string[]) : [],
           activeIndex: typeof m.activeIndex === "number" ? m.activeIndex : 0,
         });
         return;
       }
-      const kind = FRAME_KIND[m.type];
+      const kind = m.type === "event" ? m.kind : FRAME_KIND[m.type];
       if (kind && typeof m.seq === "number") {
         upsert({
           seq: m.seq,
@@ -118,7 +133,7 @@ export function useRoom(sessionId: string, api: ApiClient | null): Room {
             m.payload && typeof m.payload === "object"
               ? (m.payload as Record<string, unknown>)
               : {},
-          aiGenerated: false,
+          aiGenerated: Boolean(m.ai_generated),
           audience: m.audience === "characters" || m.audience === "dm" ? m.audience : "table",
         });
       }
@@ -127,80 +142,57 @@ export function useRoom(sessionId: string, api: ApiClient | null): Room {
   );
 
   useEffect(() => {
+    if (!api || !isLoaded || !isSignedIn) return;
     let cancelled = false;
-    let room: SessionRoom | null = null;
-
-    async function connect() {
-      // Replay durable history first so the log isn't empty on join.
-      if (api) {
-        try {
-          const log = await api.getSessionLog(sessionId);
-          if (cancelled) return;
-          setBySeq((prev) => {
-            const next = new Map(prev);
-            for (const e of log) {
-              next.set(e.seq, {
-                seq: e.seq,
-                kind: e.kind,
-                label: e.actor_label,
-                body: e.body,
-                payload: e.payload,
-                aiGenerated: e.ai_generated,
-                audience: e.audience,
-              });
-            }
-            return next;
-          });
-        } catch {
-          // A missing/blocked history is non-fatal; the live feed still works.
-        }
-      }
-
-      const token = await getToken();
-      if (cancelled) return;
-      if (!token || !API_BASE_URL) {
-        setStatus("error");
-        return;
-      }
-
-      room = connectSessionRoom({
-        baseUrl: API_BASE_URL,
-        sessionId,
-        token,
-        onMessage,
-        onOpen: () => !cancelled && setStatus("open"),
-        onError: () => !cancelled && setStatus("error"),
-        onClose: (event) => {
-          if (cancelled) return;
-          setStatus("closed");
-          setCloseCode(event.code);
-        },
-      });
-      roomRef.current = room;
-    }
-
-    void connect();
+    const room = maintainRoom({
+      baseUrl: API_BASE_URL,
+      sessionId,
+      getToken,
+      connect: connectSessionRoom,
+      onMessage,
+      onStatus: (next, code) => {
+        if (cancelled) return;
+        setStatus(next);
+        setCloseCode(code);
+        if (next !== "open") { setPresent([]); setThinking([]); }
+      },
+      recover: async () => {
+        const log = await api.getSessionLog(sessionId);
+        if (cancelled) return;
+        setBySeq((prev) => {
+          const next = new Map(prev);
+          for (const e of log) {
+            next.set(e.seq, {
+              seq: e.seq, kind: e.kind, label: e.actor_label,
+              body: e.body, payload: e.payload, aiGenerated: e.ai_generated,
+              audience: e.audience,
+            });
+          }
+          return next;
+        });
+      },
+    });
+    roomRef.current = room;
     return () => {
       cancelled = true;
-      room?.close();
+      room.close();
       roomRef.current = null;
     };
-  }, [sessionId, api, getToken, onMessage]);
+  }, [api, sessionId, getToken, isLoaded, isSignedIn, onMessage]);
 
   const entries = useMemo(
     () => Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq),
     [bySeq],
   );
 
-  const sendChat = useCallback((body: string) => roomRef.current?.sendChat(body), []);
-  const sendOoc = useCallback((body: string) => roomRef.current?.sendOoc(body), []);
+  const sendChat = useCallback((body: string) => (roomRef.current?.send({ type: "chat", body }) ?? false), []);
+  const sendOoc = useCallback((body: string) => (roomRef.current?.send({ type: "ooc", body }) ?? false), []);
   const sendRoll = useCallback(
     (body: string, payload: Record<string, unknown>) =>
-      roomRef.current?.sendRoll(body, payload),
+      (roomRef.current?.send({ type: "roll", body, payload }) ?? false),
     [],
   );
   const setInitiative = useCallback((state: InitiativeState) => {
-    setInitiativeState(state); // optimistic local update
     roomRef.current?.send({ type: "initiative", ...state });
   }, []);
 
@@ -210,6 +202,7 @@ export function useRoom(sessionId: string, api: ApiClient | null): Room {
     entries,
     present,
     initiative,
+    thinking,
     sendChat,
     sendOoc,
     sendRoll,

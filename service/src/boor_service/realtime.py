@@ -22,11 +22,19 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from fastapi import WebSocketDisconnect
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from boor_service.auth.clerk import AuthError, ClerkVerifier
 from boor_service.db import repository
-from boor_service.db.models import EventAudience, EventKind, GameSession, MembershipRole, User
+from boor_service.db.models import (
+    EventAudience,
+    EventKind,
+    GameSession,
+    MembershipRole,
+    SessionEvent,
+    User,
+)
 from boor_service.knowledge import normalize_visibility, presence_may_receive
 
 logger = logging.getLogger(__name__)
@@ -86,7 +94,8 @@ class SessionHub:
                 del self._rooms[session_id]
 
     def roster(self, session_id: uuid.UUID) -> list[Presence]:
-        return list(self._rooms.get(session_id, {}).values())
+        people = self._rooms.get(session_id, {}).values()
+        return list({person.user_id: person for person in people}.values())
 
     async def broadcast(
         self,
@@ -193,7 +202,7 @@ async def _authorize(
 
 # Frame types that append to the durable session timeline (DATA-03), mapped to
 # their EventKind. Everything else is a pure ephemeral relay (typing, cursor,
-# initiative-tracker state the DM drives). Keeping these durable is what lets a
+# other non-durable UI hints). Keeping these durable is what lets a
 # late joiner replay the table via GET /sessions/{id}/log and see real history.
 _PERSISTED_KINDS: dict[str, EventKind] = {
     "chat": EventKind.in_character,
@@ -217,6 +226,43 @@ async def _handle_message(
     if not isinstance(message, dict) or "type" not in message:
         return  # ignore malformed frames rather than dropping the connection
     frame_type = message["type"]
+    if not isinstance(frame_type, str):
+        return
+    if frame_type == "ping":
+        await socket.send_json({"type": "pong"})
+        return
+    if frame_type == "initiative":
+        if presence.role is not MembershipRole.dm:
+            return
+        order, index = message.get("order"), message.get("activeIndex", 0)
+        if (
+            not isinstance(order, list)
+            or len(order) > 100
+            or not all(isinstance(name, str) and 0 < len(name) <= 120 for name in order)
+            or type(index) is not int
+            or index < 0
+            or (index >= len(order) if order else index != 0)
+        ):
+            return
+        event = await repository.append_event(
+            db,
+            game_session=game_session,
+            kind=EventKind.turn,
+            actor=user,
+            actor_label=presence.display_name,
+            payload={"type": "initiative", "order": order, "activeIndex": index},
+        )
+        await db.commit()
+        await room.broadcast(
+            session_id,
+            {
+                **event.payload,
+                "seq": event.seq,
+                "user_id": presence.user_id,
+                "display_name": presence.display_name,
+            },
+        )
+        return
     event_kind = _PERSISTED_KINDS.get(frame_type)
     if event_kind is not None:
         body = str(message["body"]) if message.get("body") is not None else None
@@ -259,8 +305,9 @@ async def _handle_message(
             visible_to=list(event.visible_to),
             include=socket,
         )
-    else:
-        # Pure relay for ephemeral typed frames (typing, cursor, initiative state):
+    elif frame_type in {"typing", "cursor"}:
+        # Only allow client-owned ephemeral frames; server events cannot be forged.
+        # Pure relay for ephemeral typed frames (typing, cursor):
         # tag the sender and fan out, no persistence.
         await room.broadcast(
             session_id,
@@ -287,6 +334,21 @@ async def handle_connection(
     logger.info("user %s joined session %s room", user.id, session_id)
     await room.broadcast(session_id, _presence_message("join", presence, room.roster(session_id)))
     try:
+        # Persisted initiative survives refreshes, late joins, and service restarts.
+        latest = await db.scalar(
+            select(SessionEvent)
+            .where(
+                SessionEvent.session_id == session_id,
+                SessionEvent.kind == EventKind.turn,
+                SessionEvent.payload["type"].astext == "initiative",
+            )
+            .order_by(SessionEvent.seq.desc())
+            .limit(1)
+        )
+        if latest is not None:
+            await socket.send_json({**latest.payload, "seq": latest.seq})
+        await db.commit()
+        await socket.send_json({"type": "ready"})
         while True:
             message = await socket.receive_json()
             await _handle_message(

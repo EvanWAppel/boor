@@ -23,13 +23,12 @@ WORKDIR /app
 
 # Install dependencies first as a cached layer, keyed only on the lock + manifest.
 COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,id=uv,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
+# Use Docker layer caching; Railway cache mounts require a service-specific ID.
+RUN uv sync --frozen --no-install-project --no-dev --no-cache
 
 # Then the source, and install the project itself into the venv.
 COPY . .
-RUN --mount=type=cache,id=uv,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-cache
 
 EXPOSE 8000
 # Railway injects $PORT at runtime; default to 8000 for a local `docker run`.

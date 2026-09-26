@@ -26,7 +26,13 @@ function VisibilityMark({ audience }: { audience: LogEntry["audience"] }) {
 
 function Entry({ entry }: { entry: LogEntry }) {
   const who = entry.label ?? "someone";
-  const mark = <VisibilityMark audience={entry.audience} />;
+  const mark = <>
+    {entry.aiGenerated && <span className="ml-2 rounded bg-fuchsia-900/60 px-1 text-[10px] uppercase text-fuchsia-200">AI</span>}
+    {entry.payload.allowed === false && <span className="ml-2 text-rose-300">Refused: {String(entry.payload.refusal ?? "Standing boundary")}</span>}
+    <VisibilityMark audience={entry.audience} />
+  </>;
+
+  if (entry.kind === "turn" && entry.payload.type === "initiative") return null;
 
   switch (entry.kind) {
     case "in_character":
@@ -52,11 +58,6 @@ function Entry({ entry }: { entry: LogEntry }) {
           <span className="text-stone-200">{entry.body}</span>
           {summary && (
             <span className="ml-2 font-mono text-sky-200">{summary}</span>
-          )}
-          {entry.aiGenerated && (
-            <span className="ml-2 rounded bg-fuchsia-900/60 px-1 text-[10px] uppercase tracking-wide text-fuchsia-200">
-              AI
-            </span>
           )}
           {mark}
         </p>
