@@ -107,3 +107,24 @@ autonomy · minimal custom VTT · D&D 5e SRD 5.1 · personality from questionnai
 history · canon-with-recap · content from authored + imported + AI-generated ·
 web + mobile-friendly · Next.js + Python AI service · north-star = believable AI
 stand-ins.
+
+---
+
+## Portfolio presentation (2026-09-26) — *draft, confirm me*
+
+**Decision:** promote boor from a bare work-in-progress stub to a curated
+showcase on the enki portfolio *before* it has a live deployment. Chose to lead
+with the **offline AI stand-in demo** as the visual (a terminal card rendered
+from the real `python -m boor_service.demo` output, which runs on a scripted
+reasoner with no API key, so it is reproducible) rather than wait for a live
+multiplayer table. Rejected keeping it in the WIP bucket until Railway is up.
+
+**Trade-off:** it now reads as a shipped/showcased project (and counts toward the
+"working applications" tally on `/projects`) while the real-time table is written
+but not deployed. Mitigated by a scrupulously candid `honestNote` on the enki
+detail page stating exactly what is real vs. still-building, and by leading with
+the agent slice (which *is* real and tested), not the undeployed table.
+
+**Remaining gates (Evan-only):** (1) Railway deploy → adds a live link;
+(2) flip the private repo public + apply branch protection → makes the GitHub
+link work. See `BLOCKED.md`.

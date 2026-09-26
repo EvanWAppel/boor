@@ -38,8 +38,8 @@ time. So: **deploy `service` first, copy its public domain, then build `web`.**
    (Dockerfile builder + healthcheck `/health` + the migration pre-deploy step).
 2. **Variables** (Settings → Variables):
    - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`  ← reference, not a literal
-   - `CLERK_ISSUER` = `https://arriving-escargot-824.clerk.accounts.dev`
-     (your **prod** issuer if/when you make a Clerk production instance)
+   - `CLERK_ISSUER` = `https://<your-clerk-instance>.clerk.accounts.dev`
+     (from CLERK-SETUP.md; your **prod** issuer if/when you make a Clerk production instance)
    - `CLERK_JWKS_URL` = `<CLERK_ISSUER>/.well-known/jwks.json`
    - `CORS_ALLOW_ORIGINS` = the `web` public URL, e.g. `https://boor-web.up.railway.app`
      *(set this after step 3 gives you the web domain; comma-separate if more than one)*
@@ -47,7 +47,7 @@ time. So: **deploy `service` first, copy its public domain, then build `web`.**
    - `ANTHROPIC_API_KEY` — **not needed for MILE-1** (human-DM'd play). Only for the
      AI stand-in, and it trips the personal-key guardrail: mint a **scoped key in a
      dedicated Anthropic workspace with a spend cap** before wiring it — never a
-     personal/default key. See `~/.claude/CLAUDE.md`.
+     personal/default key.
 3. Deploy. Railway runs `uv run alembic upgrade head` (pre-deploy) then starts
    Uvicorn. Confirm: `curl https://<service-domain>/health` → `{"status":"ok"}`.
 4. *(Optional, once)* seed a demo table: run `uv run python -m boor_service.db.seed`

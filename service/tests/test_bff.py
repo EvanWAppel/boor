@@ -47,13 +47,15 @@ async def test_create_and_list_campaigns(
 ) -> None:
     dm = mint_token(sub="clerk_dm", email="dm@example.com")
 
-    created = await auth_client.post("/campaigns", json={"name": "Strahd"}, headers=_auth(dm))
+    created = await auth_client.post(
+        "/campaigns", json={"name": "The Ninth Toll"}, headers=_auth(dm)
+    )
     assert created.status_code == 201
     assert created.json()["my_role"] == "dm"
 
     listed = await auth_client.get("/campaigns", headers=_auth(dm))
     assert listed.status_code == 200
-    assert [c["name"] for c in listed.json()] == ["Strahd"]
+    assert [c["name"] for c in listed.json()] == ["The Ninth Toll"]
 
 
 async def test_invite_accept_and_roster(

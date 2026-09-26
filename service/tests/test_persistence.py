@@ -62,7 +62,7 @@ async def test_create_campaign_gives_owner_a_dm_membership(
     session: AsyncSession, make_user: UserFactory
 ) -> None:
     owner = await make_user()
-    campaign = await create_campaign_with_owner(session, name="Curse of Strahd", owner=owner)
+    campaign = await create_campaign_with_owner(session, name="The Ninth Toll", owner=owner)
 
     memberships = (
         await session.execute(

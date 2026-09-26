@@ -15,7 +15,7 @@ The Clerk app is created and fully wired: signed-in `GET /me` returns **200** wi
 the mirrored user (`email` + `display_name`). Config now lives in `service/.env`
 (local dev) and `web/.env.local`.
 
-- [x] `CLERK_ISSUER` — `https://arriving-escargot-824.clerk.accounts.dev`
+- [x] `CLERK_ISSUER` — `https://<your-clerk-instance>.clerk.accounts.dev` (real value in `service/.env`)
 - [x] `CLERK_JWKS_URL` — `CLERK_ISSUER` + `/.well-known/jwks.json`
 - [ ] `CLERK_AUDIENCE` — not used (no `aud` claim configured)
 - [x] Publishable + secret keys — in `web/.env.local`
