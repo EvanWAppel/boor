@@ -23,12 +23,12 @@ WORKDIR /app
 
 # Install dependencies first as a cached layer, keyed only on the lock + manifest.
 COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,id=uv,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
 # Then the source, and install the project itself into the venv.
 COPY . .
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,id=uv,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 EXPOSE 8000
