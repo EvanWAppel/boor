@@ -138,9 +138,9 @@ async def test_member_joins_and_chat_persists_to_timeline(
     assert ws.accepted and ws.close_code is None
     # a presence 'join' then the echoed chat (self leave isn't sent to a removed socket)
     kinds = [m.get("type") for m in ws.sent]
-    assert kinds == ["presence", "chat"]
+    assert kinds == ["presence", "ready", "chat"]
     assert ws.sent[0]["event"] == "join"
-    assert ws.sent[1]["body"] == "Well met."
+    assert ws.sent[2]["body"] == "Well met."
 
     # the chat landed on the session timeline (DATA-03)
     events = (
@@ -152,6 +152,58 @@ async def test_member_joins_and_chat_persists_to_timeline(
     assert events[0].body == "Well met."
     assert events[0].actor_user_id == user.id
     assert events[0].ai_generated is False
+
+
+async def test_in_character_uses_character_name_out_of_character_uses_real_name(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    """A player's IC line is labelled with their character; OOC keeps their real name."""
+    user = await sync_user(
+        session, clerk_user_id="clerk_ic", email="ic@example.com", display_name="Evil Evan"
+    )
+    campaign = await create_campaign_with_owner(session, name="Table", owner=user)
+    await create_character(session, campaign=campaign, name="Thorin", player=user)
+    game_session = await create_session(session, campaign=campaign)
+
+    token = mint_token(sub="clerk_ic", email="ic@example.com", name="Evil Evan")
+    ws = FakeWebSocket(
+        token=token,
+        incoming=[
+            {"type": "chat", "body": "For the mountain!"},
+            {"type": "ooc", "body": "back in five"},
+        ],
+    )
+    await handle_connection(ws, game_session.id, session, clerk_verifier, SessionHub())
+
+    # The echoed frames carry the label the table renders.
+    chat = next(m for m in ws.sent if m.get("type") == "chat")
+    ooc = next(m for m in ws.sent if m.get("type") == "ooc")
+    assert chat["display_name"] == "Thorin"
+    assert ooc["display_name"] == "Evil Evan"
+
+    # And the durable timeline stores the same labels for replay.
+    result = await session.execute(
+        select(SessionEvent).where(SessionEvent.session_id == game_session.id)
+    )
+    by_kind = {e.kind: e.actor_label for e in result.scalars().all()}
+    assert by_kind[EventKind.in_character] == "Thorin"
+    assert by_kind[EventKind.out_of_character] == "Evil Evan"
+
+
+async def test_in_character_falls_back_to_real_name_without_a_character(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    """A speaker with no character (e.g. a DM) still gets a label: their real name."""
+    _user, session_id = await _member_session(
+        session, clerk_id="clerk_dm_ic", email="dm_ic@example.com", name="Dungeon Master"
+    )
+    token = mint_token(sub="clerk_dm_ic", email="dm_ic@example.com", name="Dungeon Master")
+    ws = FakeWebSocket(token=token, incoming=[{"type": "chat", "body": "The gate creaks open."}])
+
+    await handle_connection(ws, session_id, session, clerk_verifier, SessionHub())
+
+    chat = next(m for m in ws.sent if m.get("type") == "chat")
+    assert chat["display_name"] == "Dungeon Master"
 
 
 async def test_broadcast_reaches_other_sockets_including_leave(
@@ -234,15 +286,12 @@ async def test_ephemeral_frames_relay_without_persisting(
     room.join(session_id, observer, Presence(user_id=str(uuid.uuid4()), display_name="Obs"))
 
     token = mint_token(sub="clerk_e", email="e@example.com", name="Ephemeral")
-    joiner = FakeWebSocket(
-        token=token, incoming=[{"type": "initiative", "order": ["Thora", "Goblin"]}]
-    )
+    joiner = FakeWebSocket(token=token, incoming=[{"type": "typing"}])
     await handle_connection(joiner, session_id, session, clerk_verifier, room)
 
     # the observer received the relayed frame with sender attribution...
-    relayed = [m for m in observer.sent if m.get("type") == "initiative"]
+    relayed = [m for m in observer.sent if m.get("type") == "typing"]
     assert len(relayed) == 1
-    assert relayed[0]["order"] == ["Thora", "Goblin"]
     assert relayed[0]["display_name"] == "Ephemeral"
     # ...but nothing was persisted to the timeline
     events = (
@@ -347,3 +396,85 @@ async def test_hub_roster_and_broadcast_exclude() -> None:
     hub.leave(sid, a)
     hub.leave(sid, b)
     assert hub.roster(sid) == []
+
+
+async def test_initiative_persists_and_replays_after_reconnect(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    _, session_id = await _member_session(session, clerk_id="dm_i", email="dm_i@example.com")
+    token = mint_token(sub="dm_i", email="dm_i@example.com")
+    state = {"type": "initiative", "order": ["Pip", "Goblin"], "activeIndex": 1}
+    first = FakeWebSocket(token=token, incoming=[state])
+    await handle_connection(first, session_id, session, clerk_verifier, SessionHub())
+    echoed = next(m for m in first.sent if m["type"] == "initiative")
+    assert echoed["seq"] == 1
+    second = FakeWebSocket(token=token)
+    # A brand new hub proves this state is coming from Postgres.
+    await handle_connection(second, session_id, session, clerk_verifier, SessionHub())
+    replay = next(m for m in second.sent if m["type"] == "initiative")
+    assert replay == {**state, "seq": 1}
+
+
+async def test_player_cannot_change_initiative(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    dm, session_id = await _member_session(session, clerk_id="dm_p", email="dm_p@example.com")
+    from boor_service.db.models import Campaign, GameSession
+
+    game = await session.get(GameSession, session_id)
+    campaign = await session.get(Campaign, game.campaign_id)
+    player = await sync_user(session, clerk_user_id="player_i", email="player_i@example.com")
+    invite = await invite_player(session, campaign=campaign, email=player.email, invited_by=dm)
+    await accept_invite(session, token=invite.token, user=player)
+    ws = FakeWebSocket(
+        token=mint_token(sub="player_i", email=player.email),
+        incoming=[
+            {"type": "initiative", "order": ["Cheater"], "activeIndex": 0},
+        ],
+    )
+    await handle_connection(ws, session_id, session, clerk_verifier, SessionHub())
+    assert not any(m["type"] == "initiative" for m in ws.sent)
+    assert (
+        await session.scalar(select(SessionEvent).where(SessionEvent.session_id == session_id))
+        is None
+    )
+
+
+async def test_heartbeat_is_private_and_malformed_frames_do_not_break_room(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    _, session_id = await _member_session(session, clerk_id="dm_h", email="dm_h@example.com")
+    room = SessionHub()
+    observer = FakeWebSocket(token=None)
+    room.join(session_id, observer, Presence(user_id="observer", display_name="Observer"))
+    ws = FakeWebSocket(
+        token=mint_token(sub="dm_h", email="dm_h@example.com"),
+        incoming=[
+            {"type": []},
+            {"type": "event", "body": "forged AI"},
+            {"type": "standin_status", "thinking": True},
+            {"type": "ping"},
+            {"type": "initiative", "order": ["Pip"], "activeIndex": -1},
+            {"type": "initiative", "order": ["Pip"], "activeIndex": True},
+            {"type": "initiative", "order": [12]},
+            {"type": "chat", "body": "Still connected"},
+        ],
+    )
+    await handle_connection(ws, session_id, session, clerk_verifier, room)
+    assert any(m["type"] == "pong" for m in ws.sent)
+    assert not any(
+        m["type"] in ("pong", "initiative", "event", "standin_status") for m in observer.sent
+    )
+    assert any(m["type"] == "chat" for m in observer.sent)
+
+
+def test_presence_counts_people_not_browser_tabs():
+    room = SessionHub()
+    session_id = uuid.uuid4()
+    first, second = FakeWebSocket(token=None), FakeWebSocket(token=None)
+    person = Presence(user_id="same-user", display_name="Pip")
+    room.join(session_id, first, person)
+    room.join(session_id, second, person)
+    assert room.roster(session_id) == [person]
+    room.leave(session_id, first)
+    assert room.roster(session_id) == [person]

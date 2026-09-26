@@ -337,12 +337,15 @@ async def append_event(
 ) -> SessionEvent:
     """Append an entry to a session's timeline, assigning the next ``seq``.
 
-    ``seq`` is ``max(seq) + 1`` for the session (starting at 1). The unique
-    constraint on ``(session_id, seq)`` guards against a racing double-append.
+    ``seq`` is ``max(seq) + 1`` for the session (starting at 1). Lock the parent
+    session until commit so simultaneous speakers cannot claim the same seq.
     ``audience`` / ``visible_to`` are the DATA-07 knowledge scope; default is
     public to the table so existing chat/dice callers stay unchanged.
     """
     parsed_audience, parsed_visible_to = normalize_visibility(audience, visible_to)
+    await session.execute(
+        select(GameSession.id).where(GameSession.id == game_session.id).with_for_update()
+    )
     next_seq = (
         await session.execute(
             select(func.coalesce(func.max(SessionEvent.seq), 0)).where(

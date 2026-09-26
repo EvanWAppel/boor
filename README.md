@@ -65,7 +65,7 @@ migrations. The service owns all data (a backend-for-frontend); the web app is
 pure UI over HTTP/WebSocket. Decisions and their rationale are in
 [`DECISIONS.md`](DECISIONS.md).
 
-Engineering hygiene: `uv` + `pytest` + `ruff` + `ty`, a 150+-test suite,
+Engineering hygiene: `uv` + `pytest` + `ruff` + `ty`, a automated test suite,
 deterministic dice under a seeded RNG, and no swallowed errors — model and tool
 failures surface loudly.
 
@@ -74,9 +74,14 @@ failures surface loudly.
 - **Real and tested:** the 5e SRD rules engine, the AI stand-in slice (guardrails
   → reasoning → adjudication → attribution), the eval harness, and the data layer
   (users, campaigns, invites, sessions, unified event timeline).
-- **Not built yet:** the playable tabletop UI (the web app is still close to the
-  Next.js scaffold), realtime transport, and auth wiring. This is an after-hours
-  project; the agent slice is the part that's finished.
+- **Playable table implemented:** Clerk sign-in, campaigns/invitations, characters,
+  sessions, realtime chat/dice/presence, and DM initiative. Connections recover
+  after drops; initiative and history survive refreshes.
+- **Stand-in table integration implemented:** personality/red-line editing,
+  per-session absence/control restoration, and DM-triggered AI turns with thinking,
+  failure, and attribution feedback. Live model calls require explicit configuration.
+- **Still to validate:** a real friends session and live-model believability. Local
+  browser checks use disposable data and a scripted model. See [PLAYTEST.md](PLAYTEST.md).
 
 The task breakdown and phase plan are in [`TASKS.md`](TASKS.md); the product
 vision in [`prd.md`](prd.md).
@@ -87,7 +92,7 @@ vision in [`prd.md`](prd.md).
 | --- | --- |
 | `service/` | FastAPI rules-and-AI service — the engine, the AI stand-in, the evals ([README](service/README.md)) |
 | `service/src/boor_service/ai/` | the agent: pure domain types, the guardrail, the stand-in ([design doc](service/src/boor_service/ai/README.md)) |
-| `web/` | Next.js web client (scaffold) |
+| `web/` | Next.js campaign hub and live tabletop |
 
 ## Content & license
 

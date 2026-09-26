@@ -12,23 +12,26 @@ export default function Composer({
   onOoc,
   disabled,
 }: {
-  onChat: (body: string) => void;
-  onOoc: (body: string) => void;
+  onChat: (body: string) => boolean;
+  onOoc: (body: string) => boolean;
   disabled?: boolean;
 }) {
   const [channel, setChannel] = useState<Channel>("ic");
   const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   function send() {
     const body = text.trim();
     if (!body) return;
-    if (channel === "ic") onChat(body);
-    else onOoc(body);
+    const sent = channel === "ic" ? onChat(body) : onOoc(body);
+    if (!sent) { setError("Connection lost. Your message is saved here; try again after reconnecting."); return; }
+    setError(null);
     setText("");
   }
 
   return (
     <div className="border-t border-stone-800 p-3">
+      {error && <p role="alert" className="mb-2 text-xs text-rose-300">{error}</p>}
       <div className="mb-2 flex gap-1 text-xs">
         {(["ic", "ooc"] as const).map((c) => (
           <button

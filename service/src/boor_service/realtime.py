@@ -22,11 +22,19 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from fastapi import WebSocketDisconnect
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from boor_service.auth.clerk import AuthError, ClerkVerifier
 from boor_service.db import repository
-from boor_service.db.models import EventAudience, EventKind, GameSession, MembershipRole, User
+from boor_service.db.models import (
+    EventAudience,
+    EventKind,
+    GameSession,
+    MembershipRole,
+    SessionEvent,
+    User,
+)
 from boor_service.knowledge import normalize_visibility, presence_may_receive
 
 logger = logging.getLogger(__name__)
@@ -62,6 +70,11 @@ class Presence:
     display_name: str | None
     role: MembershipRole = MembershipRole.player
     character_ids: tuple[str, ...] = ()
+    #: The name of the speaker's own character, used to label their in-character
+    #: lines (their real ``display_name`` still labels out-of-character asides and
+    #: rolls). ``None`` when they have no character yet (e.g. a DM), so we fall
+    #: back to the real name.
+    character_name: str | None = None
 
 
 class SessionHub:
@@ -86,7 +99,8 @@ class SessionHub:
                 del self._rooms[session_id]
 
     def roster(self, session_id: uuid.UUID) -> list[Presence]:
-        return list(self._rooms.get(session_id, {}).values())
+        people = self._rooms.get(session_id, {}).values()
+        return list({person.user_id: person for person in people}.values())
 
     async def broadcast(
         self,
@@ -181,19 +195,21 @@ async def _authorize(
         return None
 
     characters = await repository.characters_in_campaign(db, campaign_id=game_session.campaign_id)
-    character_ids = tuple(str(c.id) for c in characters if c.player_id == user.id)
+    own_characters = [c for c in characters if c.player_id == user.id]
     presence = Presence(
         user_id=str(user.id),
         display_name=user.display_name,
         role=membership.role,
-        character_ids=character_ids,
+        character_ids=tuple(str(c.id) for c in own_characters),
+        # A player speaks in character as their (first) character in the campaign.
+        character_name=own_characters[0].name if own_characters else None,
     )
     return user, game_session, presence
 
 
 # Frame types that append to the durable session timeline (DATA-03), mapped to
 # their EventKind. Everything else is a pure ephemeral relay (typing, cursor,
-# initiative-tracker state the DM drives). Keeping these durable is what lets a
+# other non-durable UI hints). Keeping these durable is what lets a
 # late joiner replay the table via GET /sessions/{id}/log and see real history.
 _PERSISTED_KINDS: dict[str, EventKind] = {
     "chat": EventKind.in_character,
@@ -217,6 +233,43 @@ async def _handle_message(
     if not isinstance(message, dict) or "type" not in message:
         return  # ignore malformed frames rather than dropping the connection
     frame_type = message["type"]
+    if not isinstance(frame_type, str):
+        return
+    if frame_type == "ping":
+        await socket.send_json({"type": "pong"})
+        return
+    if frame_type == "initiative":
+        if presence.role is not MembershipRole.dm:
+            return
+        order, index = message.get("order"), message.get("activeIndex", 0)
+        if (
+            not isinstance(order, list)
+            or len(order) > 100
+            or not all(isinstance(name, str) and 0 < len(name) <= 120 for name in order)
+            or type(index) is not int
+            or index < 0
+            or (index >= len(order) if order else index != 0)
+        ):
+            return
+        event = await repository.append_event(
+            db,
+            game_session=game_session,
+            kind=EventKind.turn,
+            actor=user,
+            actor_label=presence.display_name,
+            payload={"type": "initiative", "order": order, "activeIndex": index},
+        )
+        await db.commit()
+        await room.broadcast(
+            session_id,
+            {
+                **event.payload,
+                "seq": event.seq,
+                "user_id": presence.user_id,
+                "display_name": presence.display_name,
+            },
+        )
+        return
     event_kind = _PERSISTED_KINDS.get(frame_type)
     if event_kind is not None:
         body = str(message["body"]) if message.get("body") is not None else None
@@ -231,12 +284,18 @@ async def _handle_message(
         # The speaker knows what they said: fold their characters into the set.
         if audience is EventAudience.characters:
             visible_to = sorted(set(visible_to) | set(presence.character_ids))
+        # In character, the table sees the character's name; out of character (and
+        # rolls) it sees the real person. Fall back to the real name when the
+        # speaker has no character (e.g. a DM speaking in character).
+        label = presence.display_name
+        if event_kind is EventKind.in_character and presence.character_name:
+            label = presence.character_name
         event = await repository.append_event(
             db,
             game_session=game_session,
             kind=event_kind,
             actor=user,
-            actor_label=presence.display_name,
+            actor_label=label,
             body=body,
             payload=payload,
             audience=audience,
@@ -248,7 +307,7 @@ async def _handle_message(
             {
                 "type": frame_type,
                 "user_id": presence.user_id,
-                "display_name": presence.display_name,
+                "display_name": label,
                 "body": body,
                 "payload": event.payload,
                 "seq": event.seq,
@@ -259,8 +318,9 @@ async def _handle_message(
             visible_to=list(event.visible_to),
             include=socket,
         )
-    else:
-        # Pure relay for ephemeral typed frames (typing, cursor, initiative state):
+    elif frame_type in {"typing", "cursor"}:
+        # Only allow client-owned ephemeral frames; server events cannot be forged.
+        # Pure relay for ephemeral typed frames (typing, cursor):
         # tag the sender and fan out, no persistence.
         await room.broadcast(
             session_id,
@@ -287,6 +347,21 @@ async def handle_connection(
     logger.info("user %s joined session %s room", user.id, session_id)
     await room.broadcast(session_id, _presence_message("join", presence, room.roster(session_id)))
     try:
+        # Persisted initiative survives refreshes, late joins, and service restarts.
+        latest = await db.scalar(
+            select(SessionEvent)
+            .where(
+                SessionEvent.session_id == session_id,
+                SessionEvent.kind == EventKind.turn,
+                SessionEvent.payload["type"].astext == "initiative",
+            )
+            .order_by(SessionEvent.seq.desc())
+            .limit(1)
+        )
+        if latest is not None:
+            await socket.send_json({**latest.payload, "seq": latest.seq})
+        await db.commit()
+        await socket.send_json({"type": "ready"})
         while True:
             message = await socket.receive_json()
             await _handle_message(

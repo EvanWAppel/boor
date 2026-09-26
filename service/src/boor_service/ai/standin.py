@@ -516,11 +516,16 @@ async def act_on_turn_for_character(
 
 def _system_prompt(context: StandInContext) -> str:
     red_lines = "\n".join(f"- {rl.note or rl.kind.value}" for rl in context.red_lines) or "- (none)"
+    entities = "\n".join(
+        f"- {e.id}: {e.name} ({e.disposition.value})"
+        for e in context.game_state.entities.values()
+    )
     return (
         f"You are playing {context.character_name} in a live Dungeons & Dragons "
         "session, standing in for an absent player. Act and speak in character, "
         "true to their persona and the standing instructions their player left.\n\n"
         f"CHARACTER SHEET:\n{context.character_sheet}\n\n"
+        f"SCENE ENTITY IDS (use these exact ids for targets):\n{entities}\n\n"
         f"PERSONA / VOICE:\n{context.persona}\n\n"
         f"STANDING INSTRUCTIONS:\n{context.standing_instructions}\n\n"
         f"RED LINES (never cross these):\n{red_lines}\n\n"

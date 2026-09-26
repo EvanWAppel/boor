@@ -467,3 +467,29 @@ async def test_render_timeline_is_prompt_ready(
     )
     text = render_timeline(await session_timeline(session, game_session=game_session))
     assert text == "1. [AI] Thora: I kick the door."
+
+
+async def test_concurrent_speakers_get_distinct_sequence_numbers(session, make_user):
+    import asyncio
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    owner = await make_user()
+    campaign = await create_campaign_with_owner(session, name="Concurrent table", owner=owner)
+    game = await create_session(session, campaign=campaign)
+    await session.commit()
+    maker = async_sessionmaker(session.bind, expire_on_commit=False)
+
+    async def speak(text):
+        async with maker() as connection:
+            event = await append_event(
+                connection,
+                game_session=game,
+                kind=EventKind.in_character,
+                body=text,
+            )
+            await connection.commit()
+            return event.seq
+
+    seqs = await asyncio.wait_for(asyncio.gather(*(speak(str(i)) for i in range(8))), 10)
+    assert sorted(seqs) == list(range(1, 9))

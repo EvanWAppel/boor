@@ -19,7 +19,8 @@ COPY package.json pnpm-lock.yaml ./
 # unrs-resolver, an ESLint-only native dep) so a non-interactive install can't fail
 # on pnpm's ignored-builds guard. Next's native bits ship as prebuilt platform
 # packages, not build scripts, and the app's own `pnpm build` runs as its own step.
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --ignore-scripts
+# Keep this portable across Railway services; dependency layers are still cached.
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # --- build ------------------------------------------------------------------
 FROM base AS builder

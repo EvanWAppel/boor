@@ -45,19 +45,20 @@ export interface AuthSession {
   isLoaded: boolean;
   /** Whether there is a signed-in user (or a dev token, in the keyless path). */
   isSignedIn: boolean;
+  userId: string | null;
 }
 
 /** Clerk-backed session — the real path once a publishable key is set. */
 function useClerkSession(): AuthSession {
-  const { getToken, isLoaded, isSignedIn } = useAuth();
-  return { getToken, isLoaded, isSignedIn: Boolean(isSignedIn) };
+  const { getToken, isLoaded, isSignedIn, userId } = useAuth();
+  return { getToken, isLoaded, isSignedIn: Boolean(isSignedIn), userId: userId ?? null };
 }
 
 /** Dev-token session — used in CI/builds and before Clerk is wired locally. */
 function useDevSession(): AuthSession {
   const getToken = useCallback(() => readDevToken(), []);
   // Dev token is resolved once at load; readiness is immediate.
-  return { getToken, isLoaded: true, isSignedIn: Boolean(readDevToken()) };
+  return { getToken, isLoaded: true, isSignedIn: Boolean(readDevToken()), userId: "dev" };
 }
 
 /** The current auth session (Clerk when configured, else the dev-token seam). */
