@@ -154,6 +154,58 @@ async def test_member_joins_and_chat_persists_to_timeline(
     assert events[0].ai_generated is False
 
 
+async def test_in_character_uses_character_name_out_of_character_uses_real_name(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    """A player's IC line is labelled with their character; OOC keeps their real name."""
+    user = await sync_user(
+        session, clerk_user_id="clerk_ic", email="ic@example.com", display_name="Evil Evan"
+    )
+    campaign = await create_campaign_with_owner(session, name="Table", owner=user)
+    await create_character(session, campaign=campaign, name="Thorin", player=user)
+    game_session = await create_session(session, campaign=campaign)
+
+    token = mint_token(sub="clerk_ic", email="ic@example.com", name="Evil Evan")
+    ws = FakeWebSocket(
+        token=token,
+        incoming=[
+            {"type": "chat", "body": "For the mountain!"},
+            {"type": "ooc", "body": "back in five"},
+        ],
+    )
+    await handle_connection(ws, game_session.id, session, clerk_verifier, SessionHub())
+
+    # The echoed frames carry the label the table renders.
+    chat = next(m for m in ws.sent if m.get("type") == "chat")
+    ooc = next(m for m in ws.sent if m.get("type") == "ooc")
+    assert chat["display_name"] == "Thorin"
+    assert ooc["display_name"] == "Evil Evan"
+
+    # And the durable timeline stores the same labels for replay.
+    result = await session.execute(
+        select(SessionEvent).where(SessionEvent.session_id == game_session.id)
+    )
+    by_kind = {e.kind: e.actor_label for e in result.scalars().all()}
+    assert by_kind[EventKind.in_character] == "Thorin"
+    assert by_kind[EventKind.out_of_character] == "Evil Evan"
+
+
+async def test_in_character_falls_back_to_real_name_without_a_character(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    """A speaker with no character (e.g. a DM) still gets a label: their real name."""
+    _user, session_id = await _member_session(
+        session, clerk_id="clerk_dm_ic", email="dm_ic@example.com", name="Dungeon Master"
+    )
+    token = mint_token(sub="clerk_dm_ic", email="dm_ic@example.com", name="Dungeon Master")
+    ws = FakeWebSocket(token=token, incoming=[{"type": "chat", "body": "The gate creaks open."}])
+
+    await handle_connection(ws, session_id, session, clerk_verifier, SessionHub())
+
+    chat = next(m for m in ws.sent if m.get("type") == "chat")
+    assert chat["display_name"] == "Dungeon Master"
+
+
 async def test_broadcast_reaches_other_sockets_including_leave(
     session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
 ) -> None:

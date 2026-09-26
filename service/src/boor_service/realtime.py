@@ -70,6 +70,11 @@ class Presence:
     display_name: str | None
     role: MembershipRole = MembershipRole.player
     character_ids: tuple[str, ...] = ()
+    #: The name of the speaker's own character, used to label their in-character
+    #: lines (their real ``display_name`` still labels out-of-character asides and
+    #: rolls). ``None`` when they have no character yet (e.g. a DM), so we fall
+    #: back to the real name.
+    character_name: str | None = None
 
 
 class SessionHub:
@@ -190,12 +195,14 @@ async def _authorize(
         return None
 
     characters = await repository.characters_in_campaign(db, campaign_id=game_session.campaign_id)
-    character_ids = tuple(str(c.id) for c in characters if c.player_id == user.id)
+    own_characters = [c for c in characters if c.player_id == user.id]
     presence = Presence(
         user_id=str(user.id),
         display_name=user.display_name,
         role=membership.role,
-        character_ids=character_ids,
+        character_ids=tuple(str(c.id) for c in own_characters),
+        # A player speaks in character as their (first) character in the campaign.
+        character_name=own_characters[0].name if own_characters else None,
     )
     return user, game_session, presence
 
@@ -277,12 +284,18 @@ async def _handle_message(
         # The speaker knows what they said: fold their characters into the set.
         if audience is EventAudience.characters:
             visible_to = sorted(set(visible_to) | set(presence.character_ids))
+        # In character, the table sees the character's name; out of character (and
+        # rolls) it sees the real person. Fall back to the real name when the
+        # speaker has no character (e.g. a DM speaking in character).
+        label = presence.display_name
+        if event_kind is EventKind.in_character and presence.character_name:
+            label = presence.character_name
         event = await repository.append_event(
             db,
             game_session=game_session,
             kind=event_kind,
             actor=user,
-            actor_label=presence.display_name,
+            actor_label=label,
             body=body,
             payload=payload,
             audience=audience,
@@ -294,7 +307,7 @@ async def _handle_message(
             {
                 "type": frame_type,
                 "user_id": presence.user_id,
-                "display_name": presence.display_name,
+                "display_name": label,
                 "body": body,
                 "payload": event.payload,
                 "seq": event.seq,
