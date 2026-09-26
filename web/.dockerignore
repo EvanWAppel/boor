@@ -1,0 +1,11 @@
+# Keep the build context small and secrets/artifacts out of the image.
+node_modules/
+.next/
+.git/
+.gitignore
+npm-debug.log*
+# Local env — never bake into the image (Railway provides build/runtime vars).
+.env
+.env.*
+!.env.local.example
+README.md

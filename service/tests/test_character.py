@@ -167,3 +167,50 @@ def test_taking_damage_tracks_on_character() -> None:
     c = make_char()
     c.combatant.take_damage(10)
     assert c.combatant.current_hp == 34
+
+
+# --- sheet serialization (DATA-02 persistence, pure dict transforms) -------
+
+
+def test_to_sheet_is_json_safe_and_sorted() -> None:
+    c = make_char(
+        skill_proficiencies=frozenset({"stealth", "perception"}),
+        skill_expertise=frozenset({"stealth"}),
+        save_proficiencies=frozenset({"dex", "con"}),
+    )
+    sheet = c.to_sheet()
+
+    # sets are serialized as sorted lists (stable blob), no live combat state
+    assert sheet["skill_proficiencies"] == ["perception", "stealth"]
+    assert sheet["skill_expertise"] == ["stealth"]
+    assert sheet["save_proficiencies"] == ["con", "dex"]
+    assert "combatant" not in sheet
+    assert "current_hp" not in sheet
+
+
+def test_sheet_round_trips_and_preserves_derived_stats() -> None:
+    original = make_char(
+        level=7,
+        abilities={"str": 8, "dex": 18, "con": 14, "int": 12, "wis": 16, "cha": 10},
+        max_hp=52,
+        skill_proficiencies=frozenset({"stealth", "perception"}),
+        skill_expertise=frozenset({"stealth"}),
+        save_proficiencies=frozenset({"dex", "int"}),
+        base_armor_class=15,
+    )
+
+    restored = Character.from_sheet(original.to_sheet())
+
+    assert restored.to_sheet() == original.to_sheet()
+    # derived stats survive the round-trip
+    assert restored.armor_class == original.armor_class
+    assert restored.passive_perception == original.passive_perception
+    assert restored.skill_bonus("stealth") == original.skill_bonus("stealth")
+    assert restored.save_bonus("dex") == original.save_bonus("dex")
+
+
+def test_from_sheet_revalidates() -> None:
+    bad = make_char().to_sheet()
+    bad["level"] = 27  # out of the 1..20 range
+    with pytest.raises(ValueError, match="level must be in"):
+        Character.from_sheet(bad)

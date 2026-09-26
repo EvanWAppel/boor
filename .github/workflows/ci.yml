@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, data-layer-foundations]
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  service:
+    name: service (lint · typecheck · tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # Installs the project + dev deps into an isolated venv (Python pinned by
+      # service/.python-version). Testcontainers uses the Docker daemon that
+      # GitHub-hosted ubuntu runners provide — no service container needed.
+      - run: uv sync --dev
+      - run: uv run ruff check src/ tests/
+      - run: uv run ty check src/
+      - run: uv run pytest
+
+  web:
+    name: web (lint · build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm build
