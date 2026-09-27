@@ -343,3 +343,24 @@ Version-one runs retain their original flow and command receipts. Version-two
 starter selection reuses each person's already-created template within the run.
 No migration is required. Conversation scenes, combat, pause/resume, and the longer
 adventure remain planned.
+
+## Conversation follow-up
+
+New version-three introductions continue from the rescue into a second scene with
+Mara. Success leaves the party on the road with time to reach the gate; failure
+puts them at her camp after dark. The host advances after everyone reads the check
+outcome. Playing characters can ask three authored questions about Emberlow, the
+river, and Mara's delivery. Friendly conversation needs no dice or AI call. Answers
+are shared, attributed, and each topic can be asked once per party.
+
+After at least one question, players discuss their next stop in chat. One playing
+character chooses town or river for the party; the first accepted choice commits
+the destination. This is an explicit shared decision, not a vote. The ending
+reflects both the rescue result and destination, and the host finishes after the
+group reads it. The destination is narrative state for now; it does not launch an
+additional encounter or update inventory. Questions, answers, the choice, and its
+attribution survive refresh and reconnect. Spectators read without choosing.
+
+The introduction is now approximately ten minutes and two scenes. Existing v1/v2
+runs retain their original ending and receipt behavior; no migration is required.
+Combat, custom actions, pause/resume, and the full 20–30 minute chapter remain next.

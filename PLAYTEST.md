@@ -28,12 +28,21 @@ Live app: https://web-production-0e6881.up.railway.app/
 5. Roll. Both accounts should see the same die, character bonus, total, and story
    outcome. A low total still rescues the cart, with a different consequence.
 6. Refresh both pages. The outcome remains, with no second roll available.
-7. As Evan, click **Finish the introduction**. Start another session to swap leads
-   or try the other approach.
-8. In a separate attempt, end the session while a check is pending. Neither account
-   should be able to roll or send new chat. The log stays readable.
+7. As Evan, click **Talk with Mara**. A low rescue roll places the conversation at
+   her camp after dark; a success leaves time to reach Emberlow's gate.
+8. Ask Mara a question from either playing account. Both accounts see the same
+   answer, and the question becomes marked as asked. No roll is needed. Spectators
+   can read but cannot ask or choose a destination.
+9. Discuss the next stop in chat, then have one player choose town or river. The
+   first accepted choice settles the party's destination; it cannot be overwritten
+   by the other account. Refresh and verify that the answers and ending remain.
+10. As Evan, click **Finish the introduction**. Start another session to swap leads
+    or try different choices. Introductions started before this update still end
+    after the rescue, without the conversation scene.
+11. In a separate attempt, end the session while a check or conversation is pending. Neither account
+   should be able to act or send new chat. The log stays readable.
 
-This is one scene and one party check. Combat and the longer adventure are next.
+This is a two-scene introduction with one party check. Combat and the longer adventure are next.
 It runs without AI calls. The host can release a pending check if its player leaves.
 
 ## Human-DM acceptance pass

@@ -80,15 +80,18 @@ function Entry({ entry }: { entry: LogEntry }) {
   }
 }
 
-export default function Log({ entries }: { entries: LogEntry[] }) {
-  const endRef = useRef<HTMLDivElement>(null);
+export default function Log({ entries, bounded = false }: { entries: LogEntry[]; bounded?: boolean }) {
+  const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
-  }, [entries.length]);
+    const log = logRef.current;
+    if (!log) return;
+    if (bounded) log.scrollTop = log.scrollHeight;
+    else log.lastElementChild?.scrollIntoView({ block: "end" });
+  }, [entries.length, bounded]);
 
   return (
-    <div className="flex-1 space-y-1.5 overflow-y-auto p-4 text-sm">
+    <div ref={logRef} className={`flex-1 space-y-1.5 overflow-y-auto p-4 text-sm ${bounded ? "max-h-[32dvh] min-h-24" : ""}`}>
       {entries.length === 0 ? (
         <p className="text-stone-500 italic">
           The table is quiet. Say something in character to begin.
@@ -96,7 +99,6 @@ export default function Log({ entries }: { entries: LogEntry[] }) {
       ) : (
         entries.map((e) => <Entry key={e.seq} entry={e} />)
       )}
-      <div ref={endRef} />
     </div>
   );
 }

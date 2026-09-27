@@ -6,6 +6,7 @@ import { ApiError, type ApiClient } from "@/lib/api";
 import { isGuidedPayload, type GuidedCommand, type GuidedState } from "@/lib/guided";
 import type { Character } from "@/lib/types";
 import type { LogEntry } from "@/lib/useRoom";
+import ConversationPanel from "./ConversationPanel";
 
 const button = "rounded-lg border border-amber-700/60 bg-amber-950/50 px-4 py-3 text-left text-sm text-amber-100 hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40";
 
@@ -63,8 +64,8 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
 
   return <section className="max-h-[65dvh] shrink-0 space-y-4 overflow-y-auto border-b border-amber-900/50 bg-stone-950 p-5" aria-label="Guided adventure" aria-busy={busy}>
     <div>
-      <p className="text-xs uppercase tracking-widest text-amber-500">Learn by playing · 5 minute introduction</p>
-      <h2 className="mt-1 text-2xl font-semibold text-amber-100">The river-road rescue</h2>
+      <p className="text-xs uppercase tracking-widest text-amber-500">Learn by playing · {state && state.version < 3 ? "5" : "10"} minute introduction</p>
+      <h2 className="mt-1 text-2xl font-semibold text-amber-100">{state?.conversation ? "A word with Mara" : "The river-road rescue"}</h2>
     </div>
     {error && <div role="alert" className="text-sm text-rose-300">{error}
       {!loaded && !state && <button className={`${button} ml-3`} onClick={() => setReload(n => n + 1)}>Reload adventure</button>}
@@ -78,7 +79,7 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
         : <p className="text-sm text-amber-200">Your host can start the guided introduction here.</p>}
     </>}
     {state && <>
-      {!inLobby && <><p className="max-w-2xl text-sm leading-relaxed text-stone-300">{state.intro}</p>
+      {!inLobby && !state.conversation && <><p className="max-w-2xl text-sm leading-relaxed text-stone-300">{state.intro}</p>
       <p className="text-sm font-medium text-amber-200">Goal: get Mara and her cart onto firm ground.</p></>}
       {inLobby && <>
         <h3 className="font-medium text-stone-100">Get your party ready</h3>
@@ -111,7 +112,7 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
         </div>
         <p className="text-xs text-stone-400">Starter characters are saved to your campaign. No character sheet to fill out.</p>
       </>}
-      {!ended && state.version === 2 && state.phase === "ready" && !me && <p role="status" className="text-sm text-amber-200">You’re watching this introduction. Follow the story and join the discussion in chat. Choose a character in the next session to play.</p>}
+      {!ended && state.version >= 2 && state.phase === "ready" && !me && <p role="status" className="text-sm text-amber-200">You’re watching this introduction. Follow the story and join the discussion in chat. Choose a character in the next session to play.</p>}
       {!ended && state.phase === "ready" && me && <>
         <h3 className="font-medium text-stone-100">2. How will you help?</h3>
         <p className="text-sm text-stone-400">Discuss it in chat. Any player who has chosen a character can take the lead; the first choice starts the party’s check.</p>
@@ -129,17 +130,18 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
           : <p role="status" className="text-sm text-amber-200">Waiting for {state.pending.name}’s player to roll. You can cheer them on in chat.</p>)}
         {!ended && isHost && <button className="ml-3 text-xs text-stone-400 underline disabled:opacity-40" disabled={disabled} onClick={() => act("cancel")}>Release check so someone else can act</button>}
       </>}
-      {state.result && <div className="space-y-2 rounded-lg border border-emerald-900 bg-emerald-950/20 p-4" role="status">
+      {state.conversation && <ConversationPanel state={state} canPlay={Boolean(me)} isHost={isHost} disabled={disabled} ended={ended} act={act} />}
+      {state.result && !state.conversation && <div className="space-y-2 rounded-lg border border-emerald-900 bg-emerald-950/20 p-4" role="status">
         <p className="font-mono text-lg text-emerald-200">{state.result.die} {state.result.bonus >= 0 ? "+" : "−"} {Math.abs(state.result.bonus)} = {state.result.total} · target {state.result.dc}</p>
         <p className="text-sm text-stone-200">{state.result.outcome}</p>
       </div>}
       {!ended && state.phase === "outcome" && (isHost
-        ? <button className={button} disabled={disabled} onClick={() => act("continue")}>Finish the introduction</button>
+        ? <button className={button} disabled={disabled} onClick={() => act("continue")}>{state.version >= 3 ? "Talk with Mara" : "Finish the introduction"}</button>
         : <p className="text-sm text-amber-200">Your host will continue once everyone has read the outcome.</p>)}
       {state.phase === "complete" && <div className="space-y-2 text-sm text-stone-300">
         <h3 className="font-semibold text-amber-100">Introduction complete</h3>
-        <p>You chose an approach, rolled a check, and changed the story. That’s the basic rhythm of play.</p>
-        <p>This first introduction ends here. Start a new session from your campaign to try the other approach or let another player lead.</p>
+        <p>You chose an approach, rolled a check{state.conversation ? ", spoke with Mara, and chose a destination" : ", and changed the story"}. That’s the basic rhythm of play.</p>
+        <p>This introduction ends here. Start a new session from your campaign to try different choices or let another player lead.</p>
       </div>}
     </>}
     {(ended || state?.phase === "complete") && campaignId && <Link className={`${button} inline-block`} href={`/campaigns/${campaignId}`}>Back to campaign</Link>}
