@@ -2,6 +2,8 @@
 
 import uuid
 
+import pytest
+
 from boor_service.db.models import EventKind, GameSession
 from boor_service.db.repository import append_event
 from tests.test_guided import command, setup
@@ -24,7 +26,7 @@ async def test_lobby_ready_watch_reselect_and_begin(auth_client, mint_token):
             return state
 
     state = await act(host, "start")
-    assert state["phase"] == "lobby" and state["version"] == 2
+    assert state["phase"] == "lobby" and state["version"] == 3
     assert len(state["seats"]) == 2
     await act(host, "begin", 409)
     await act(player, "ready", 409)
@@ -77,7 +79,10 @@ async def test_absent_rejoin_and_readiness_replay(auth_client, mint_token):
     assert (await post(host, "begin", 7)).status_code == 200
 
 
-async def test_legacy_ready_state_and_receipts_still_work(auth_client, mint_token, session):
+@pytest.mark.parametrize("version", [1, 2])
+async def test_legacy_ready_state_and_receipts_still_work(
+    auth_client, mint_token, session, version
+):
     path, host, _ = await setup(auth_client, mint_token)
     user = (await auth_client.get("/me", headers=_auth(host))).json()
     from boor_service.db.models import User
@@ -92,13 +97,15 @@ async def test_legacy_ready_state_and_receipts_still_work(auth_client, mint_toke
         kind=EventKind.narration,
         actor=actor,
         payload={
-            "type": "guided_cart_v1",
+            "type": f"guided_cart_v{version}",
             "request_id": old_command["request_id"],
             "command": old_command,
             "state": {
-                "version": 1,
+                "version": version,
                 "revision": 1,
-                "phase": "ready",
+                "phase": "ready" if version == 1 else "lobby",
+                "seats": {user["id"]: {"player_name": "Host", "ready": False, "watching": False}},
+                "starters": {},
                 "participants": {},
                 "pending": None,
                 "result": None,
@@ -109,14 +116,15 @@ async def test_legacy_ready_state_and_receipts_still_work(auth_client, mint_toke
     await session.commit()
     retry = await auth_client.post(path + "/guided", headers=_auth(host), json=old_command)
     assert retry.status_code == 200
-    assert retry.json()["state"]["version"] == 1
-    for action, rev, extra in [
-        ("select", 1, {"pregen": "guardian"}),
-        ("approach", 2, {"approach": "lift"}),
-        ("roll", 3, {}),
-    ]:
+    assert retry.json()["state"]["version"] == version
+    steps = [("select", {"pregen": "guardian"})]
+    if version == 2:
+        steps += [("ready", {}), ("begin", {})]
+    steps += [("approach", {"approach": "lift"}), ("roll", {}), ("continue", {})]
+    for rev, (action, extra) in enumerate(steps, start=1):
         response = await auth_client.post(
             path + "/guided", headers=_auth(host), json=command(action, rev, **extra)
         )
         assert response.status_code == 200, response.text
-    assert response.json()["state"]["phase"] == "outcome"
+    assert response.json()["state"]["phase"] == "complete"
+    assert not response.json()["state"].get("conversation")

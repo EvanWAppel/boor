@@ -149,7 +149,7 @@ function SessionRoomContent({ sessionId }: { sessionId: string }) {
         <div className="flex min-h-0 flex-col border-r border-stone-800">
           <GuidedPanel api={api} sessionId={sessionId} campaignId={session?.campaign_id} entries={room.entries} characters={characters}
             myId={myId} isHost={isDm} connected={connected} ended={ended} />
-          <Log entries={room.entries} />
+          <Log entries={room.entries} bounded={Boolean(guidedRevision)} />
           <Composer
             onChat={room.sendChat}
             onOoc={room.sendOoc}

@@ -64,7 +64,13 @@ async def test_complete_rescue_and_retry(auth_client, mint_token, monkeypatch, d
     repeated = await auth_client.post(path + "/guided", headers=_auth(player), json=roll)
     assert repeated.json() == response.json()
     assert len((await auth_client.get(path + "/log", headers=_auth(player))).json()) == 7
-    await act(dm, "continue", 7)
+    conversation = await act(dm, "continue", 7)
+    assert conversation["phase"] == "conversation"
+    assert ("gate is closed" in conversation["conversation"]["intro"]) == (not success)
+    await act(player, "ask", 8, topic="road")
+    decision = await act(player, "choose", 9, choice="town")
+    assert ("at dawn" in decision["conversation"]["ending"]["body"]) == (not success)
+    await act(dm, "continue", 10)
     # A new read recovers both final state and the outcome after completion.
     replay = (await auth_client.get(path + "/guided", headers=_auth(player))).json()["state"]
     assert replay["phase"] == "complete"

@@ -28,11 +28,18 @@ from boor_service.db.models import (
     SessionEvent,
     SessionStatus,
 )
+from boor_service.guided_story import (
+    CHOICES,
+    QUESTIONS,
+    answer_question,
+    conversation_intro,
+    route_ending,
+)
 from boor_service.mechanics import ability_check
 
 router = APIRouter()
-TYPE = "guided_cart_v2"
-LEGACY_TYPE = "guided_cart_v1"
+TYPE = "guided_cart_v3"
+EVENT_TYPES = {1: "guided_cart_v1", 2: "guided_cart_v2", 3: TYPE}
 INTRO = (
     "On the river road to Emberlow, a delivery cart has slipped into a muddy rut. "
     "Its driver, Mara, holds the reins while the river rises beside the road. "
@@ -77,7 +84,11 @@ class Command(BaseModel):
         "join",
         "exclude",
         "begin",
+        "ask",
+        "choose",
     ]
+    topic: Literal["road", "river", "mara"] | None = None
+    choice: Literal["town", "river"] | None = None
     target_user_id: uuid.UUID | None = None
     character_id: uuid.UUID | None = None
     pregen: Literal["guardian", "scholar"] | None = None
@@ -88,7 +99,7 @@ def events_query(session_id: uuid.UUID):
     return select(SessionEvent).where(
         SessionEvent.session_id == session_id,
         SessionEvent.kind == EventKind.narration,
-        SessionEvent.payload["type"].astext.in_([TYPE, LEGACY_TYPE]),
+        SessionEvent.payload["type"].astext.in_(EVENT_TYPES.values()),
         SessionEvent.ai_generated.is_(False),
     )
 
@@ -146,7 +157,8 @@ async def command_guided(
                 409, "This tutorial has already started. Open a new session to replay."
             )
         initial: dict[str, Any] = dict(
-            version=2,
+            version=3,
+            conversation=None,
             revision=0,
             phase="lobby",
             participants={},
@@ -328,6 +340,51 @@ async def command_guided(
             state["phase"] = "outcome"
             narration = f"{pending['name']} rolls {check.total} against 12. {outcome}"
             state["pending"] = None
+        elif body.action in {"ask", "choose"}:
+            if state["phase"] != "conversation" or state["version"] < 3:
+                raise HTTPException(409, "There is no conversation waiting for an action.")
+            if uid not in participants:
+                raise HTTPException(403, "Only a playing character can speak for the party.")
+            character = await session.get(Character, uuid.UUID(participants[uid]["character_id"]))
+            if character is None or character.player_id != user.id:
+                raise HTTPException(403, "You no longer control this character.")
+            conversation = state["conversation"]
+            success = state["result"]["success"]
+            if body.action == "ask":
+                if body.topic is None:
+                    raise HTTPException(422, "Choose a question to ask Mara.")
+                if any(answer["topic"] == body.topic for answer in conversation["answers"]):
+                    raise HTTPException(
+                        409, "Mara has already answered that question for the party."
+                    )
+                reply = answer_question(body.topic, success)
+                conversation["answers"].append(
+                    dict(
+                        topic=body.topic,
+                        question=QUESTIONS[body.topic],
+                        reply=reply,
+                        speaker=character.name,
+                        user_id=uid,
+                    )
+                )
+                narration = f"{character.name}: {QUESTIONS[body.topic]} Mara: {reply}"
+            else:
+                if body.choice is None:
+                    raise HTTPException(422, "Choose where the party will go next.")
+                if not conversation["answers"]:
+                    raise HTTPException(409, "Ask Mara a question before choosing your next stop.")
+                ending = route_ending(body.choice, success)
+                conversation["ending"] = dict(
+                    choice=body.choice,
+                    label=CHOICES[body.choice],
+                    body=ending,
+                    speaker=character.name,
+                    user_id=uid,
+                )
+                state["phase"] = "decision"
+                narration = (
+                    f"{character.name} chooses for the party: {CHOICES[body.choice]}. {ending}"
+                )
         elif body.action == "cancel":
             if not is_host or state["phase"] != "check":
                 raise HTTPException(403, "Only the host can release a pending check.")
@@ -338,12 +395,29 @@ async def command_guided(
         else:
             if not is_host:
                 raise HTTPException(403, "The host continues after everyone has read the outcome.")
-            if state["phase"] != "outcome":
-                raise HTTPException(409, "Resolve the check first.")
-            state["phase"] = "complete"
-            narration = (
-                "Cart rescue complete. You chose an approach, made a check, and changed the story."
-            )
+            if state["phase"] == "outcome" and state["version"] >= 3:
+                narration = conversation_intro(state["result"]["success"])
+                state["conversation"] = dict(
+                    intro=narration,
+                    questions=[dict(id=key, label=label) for key, label in QUESTIONS.items()],
+                    choices=[dict(id=key, label=label) for key, label in CHOICES.items()],
+                    answers=[],
+                    ending=None,
+                )
+                state["phase"] = "conversation"
+            elif state["phase"] == "outcome" or (
+                state["phase"] == "decision" and state["version"] >= 3
+            ):
+                state["phase"] = "complete"
+                narration = (
+                    "Introduction complete. You rescued the cart, spoke with Mara, "
+                    "and chose your next destination."
+                    if state["version"] >= 3
+                    else "Cart rescue complete. You chose an approach, "
+                    "made a check, and changed the story."
+                )
+            else:
+                raise HTTPException(409, "Finish the current scene before continuing.")
     state["revision"] += 1
     event = await repository.append_event(
         session,
@@ -353,7 +427,7 @@ async def command_guided(
         actor_label="Guide",
         body=narration,
         payload={
-            "type": TYPE if state["version"] >= 2 else LEGACY_TYPE,
+            "type": EVENT_TYPES[state["version"]],
             "state": state,
             "request_id": str(body.request_id),
             "command": body.model_dump(mode="json"),
