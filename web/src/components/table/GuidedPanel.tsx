@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ApiError, type ApiClient } from "@/lib/api";
-import type { GuidedCommand, GuidedState } from "@/lib/guided";
+import { isGuidedPayload, type GuidedCommand, type GuidedState } from "@/lib/guided";
 import type { Character } from "@/lib/types";
 import type { LogEntry } from "@/lib/useRoom";
 
@@ -16,15 +16,20 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
   const [snapshot, setSnapshot] = useState<GuidedState | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [reload, setReload] = useState(0);
+  const [changing, setChanging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Keep the same command on ambiguous network failure: retry must never roll twice.
   const retry = useRef<GuidedCommand | null>(null);
   const [canRetry, setCanRetry] = useState(false);
-  const latest = entries.findLast(e => e.kind === "narration" && !e.aiGenerated && e.payload.type === "guided_cart_v1");
+  const latest = entries.findLast(e => e.kind === "narration" && !e.aiGenerated && isGuidedPayload(e.payload));
   const live = latest?.payload.state as GuidedState | undefined;
   const state = live && live.revision >= (snapshot?.revision ?? 0) ? live : snapshot;
   const me = myId ? state?.participants[myId] : null;
+  const seat = myId ? state?.seats?.[myId] : null;
+  const inLobby = state?.phase === "lobby";
+  const allReady = Boolean(state && Object.keys(state.participants).length > 0 &&
+    Object.values(state.seats ?? {}).every(s => s.ready));
   const disabled = busy || !connected || ended || (!loaded && !state) || !myId || canRetry;
 
   useEffect(() => {
@@ -42,6 +47,7 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
     try {
       const result = await api.guidedCommand(sessionId, command);
       setSnapshot(result.state);
+      if (command.action === "select" || command.action === "watch") setChanging(false);
       retry.current = null;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send your action.");
@@ -72,10 +78,31 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
         : <p className="text-sm text-amber-200">Your host can start the guided introduction here.</p>}
     </>}
     {state && <>
-      <p className="max-w-2xl text-sm leading-relaxed text-stone-300">{state.intro}</p>
-      <p className="text-sm font-medium text-amber-200">Goal: get Mara and her cart onto firm ground.</p>
+      {!inLobby && <><p className="max-w-2xl text-sm leading-relaxed text-stone-300">{state.intro}</p>
+      <p className="text-sm font-medium text-amber-200">Goal: get Mara and her cart onto firm ground.</p></>}
+      {inLobby && <>
+        <h3 className="font-medium text-stone-100">Get your party ready</h3>
+        <p className="max-w-2xl text-sm text-stone-300">You play a character in a shared story. Choose what they try; the app explains when to roll and handles the rules. You can discuss choices in chat. No D&D experience needed.</p>
+        <ul className="space-y-2 text-sm" aria-label="Lobby readiness">
+          {Object.entries(state.seats ?? {}).sort(([a, sa], [b, sb]) => sa.player_name.localeCompare(sb.player_name) || a.localeCompare(b)).map(([id, s]) => <li key={id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-stone-800 p-3">
+            <span><span className="font-medium text-stone-200">{s.player_name}{id === myId ? " (you)" : ""}</span><span className="text-stone-400"> · {s.watching ? "Watching" : state.participants[id]?.name ?? "Choosing a character"} · {s.ready ? "Ready" : "Not ready"}</span></span>
+            {isHost && id !== myId && !ended && <button className="text-xs text-stone-400 underline disabled:opacity-40" disabled={disabled} onClick={() => act("exclude", { target_user_id: id })}>Mark {s.player_name} absent</button>}
+          </li>)}
+        </ul>
+        {!ended && !seat && <button className={button} disabled={disabled} onClick={() => act("join")}>Join this lobby</button>}
+        {!ended && seat && <div className="flex flex-wrap gap-2">
+          {(me || seat.watching) && <button className={button} disabled={disabled} onClick={() => act(seat.ready ? "unready" : "ready")}>{seat.ready ? "Not ready yet" : "I’m ready"}</button>}
+          {!seat.watching && <button className={button} disabled={disabled} onClick={() => act("watch")}>Watch this introduction</button>}
+          {(me || seat.watching) && <button className={button} disabled={disabled} onClick={() => setChanging(!changing)}>{changing ? "Keep my choice" : seat.watching ? "Play a character instead" : "Change character"}</button>}
+        </div>}
+        {!ended && isHost && <div className="space-y-2">
+          <button className={button} disabled={disabled || !allReady} onClick={() => act("begin")}>Begin adventure</button>
+          <p className="text-xs text-stone-400">Everyone listed must be ready, with at least one playing character. Mark missing players absent; they can rejoin before you begin.</p>
+        </div>}
+        {!isHost && <p role="status" className="text-sm text-amber-200">The host will begin when everyone is ready.</p>}
+      </>}
       {Object.keys(state.participants).length > 0 && <p className="text-xs text-stone-400">Rescue party: {Object.values(state.participants).map(p => p.name).join(", ")}{me ? ` · You are ${me.name}` : ""}</p>}
-      {!ended && state.phase === "ready" && !me && <>
+      {!ended && ((inLobby && seat && ((!me && !seat.watching) || changing)) || (state.version === 1 && state.phase === "ready" && !me)) && <>
         <h3 className="font-medium text-stone-100">1. Choose who you want to play</h3>
         <div className="flex flex-wrap gap-2">
           {characters.filter(c => c.player_id === myId).map(c => <button key={c.id} className={button} disabled={disabled} onClick={() => act("select", { character_id: c.id })}>Play as {c.name}</button>)}
@@ -84,6 +111,7 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
         </div>
         <p className="text-xs text-stone-400">Starter characters are saved to your campaign. No character sheet to fill out.</p>
       </>}
+      {!ended && state.version === 2 && state.phase === "ready" && !me && <p role="status" className="text-sm text-amber-200">You’re watching this introduction. Follow the story and join the discussion in chat. Choose a character in the next session to play.</p>}
       {!ended && state.phase === "ready" && me && <>
         <h3 className="font-medium text-stone-100">2. How will you help?</h3>
         <p className="text-sm text-stone-400">Discuss it in chat. Any player who has chosen a character can take the lead; the first choice starts the party’s check.</p>

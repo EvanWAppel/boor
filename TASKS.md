@@ -15,7 +15,8 @@ See [GUIDED-PLAY-PLAN.md](GUIDED-PLAY-PLAN.md) for the longer roadmap.
 
 - [x] GUIDE-01 — Authored cart rescue: server-authoritative revisioned state, owned/pregen character selection, two approaches, designated-player check, success/failure consequences, host completion, replay, and duplicate-command protection. Ended sessions are read-only.
 - [ ] GUIDE-02 — Playtest with Evan and Evil Evan using PLAYTEST.md; collect where the next action is unclear.
-- [ ] GUIDE-03 — Expand into the 20–30 minute adventure: lobby/readiness, conversation, more scenes, bounded combat, and wrap-up. Custom approaches and pause/resume remain planned.
+- [x] GUIDE-LOBBY — Shared character-selection lobby, explicit readiness, spectators, host start, absent/rejoin controls, and version-one compatibility.
+- [ ] GUIDE-03 — Expand into the 20–30 minute adventure: conversation, more scenes, bounded combat, and wrap-up. Custom approaches and pause/resume remain planned.
 
 ## Phase 0 — Foundations
 

@@ -17,6 +17,12 @@ Live app: https://web-production-0e6881.up.railway.app/
 1. Open a fresh active session as Evan and enter the same table as Evil Evan.
 2. As the host, click **Start guided introduction**.
 3. Choose a starter character on each account (or an existing owned character).
+   Both accounts should appear in the lobby with their character and readiness.
+   Click **I’m ready** on each. **Begin adventure** stays disabled until everyone
+   is ready; changing a character makes that person not ready again. As Evan,
+   click **Begin adventure**. To host without playing, choose **Watch this introduction**.
+   If someone is missing, the host can mark them absent; they can rejoin while
+   the lobby is open. Refresh during setup to check that readiness is saved.
 4. As Evil Evan, choose an approach. Evan should see who is rolling and a waiting
    message. Only Evil Evan gets the roll button.
 5. Roll. Both accounts should see the same die, character bonus, total, and story

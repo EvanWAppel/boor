@@ -327,3 +327,19 @@ chat remains available for discussion. The host can release a check if its playe
 leaves. Custom approaches, pause/resume, encounters, inventory effects, and the
 longer onboarding/adventure remain follow-up work. The brass token is narrative
 state only, not an inventory item.
+
+## Lobby follow-up
+
+New introductions now begin in a version-two lobby. The roster initially includes
+all campaign members. Each person selects a character and marks themselves ready,
+or chooses to watch. Changing a character clears readiness. Only the host can
+begin, and the server requires every listed person to be ready with at least one
+playing character. The host can mark a missing person absent; campaign members
+can join/rejoin while the lobby remains open. Joining after the adventure begins
+is spectator-only for this short introduction. Readiness persists across refresh
+and reconnect; online presence does not silently change it.
+
+Version-one runs retain their original flow and command receipts. Version-two
+starter selection reuses each person's already-created template within the run.
+No migration is required. Conversation scenes, combat, pause/resume, and the longer
+adventure remain planned.
