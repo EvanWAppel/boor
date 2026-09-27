@@ -31,7 +31,8 @@ from boor_service.db.models import (
 from boor_service.mechanics import ability_check
 
 router = APIRouter()
-TYPE = "guided_cart_v1"
+TYPE = "guided_cart_v2"
+LEGACY_TYPE = "guided_cart_v1"
 INTRO = (
     "On the river road to Emberlow, a delivery cart has slipped into a muddy rut. "
     "Its driver, Mara, holds the reins while the river rises beside the road. "
@@ -63,7 +64,21 @@ class Command(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: uuid.UUID
     revision: int = Field(ge=0)
-    action: Literal["start", "select", "approach", "roll", "cancel", "continue"]
+    action: Literal[
+        "start",
+        "select",
+        "approach",
+        "roll",
+        "cancel",
+        "continue",
+        "ready",
+        "unready",
+        "watch",
+        "join",
+        "exclude",
+        "begin",
+    ]
+    target_user_id: uuid.UUID | None = None
     character_id: uuid.UUID | None = None
     pregen: Literal["guardian", "scholar"] | None = None
     approach: Literal["lift", "leverage"] | None = None
@@ -73,7 +88,7 @@ def events_query(session_id: uuid.UUID):
     return select(SessionEvent).where(
         SessionEvent.session_id == session_id,
         SessionEvent.kind == EventKind.narration,
-        SessionEvent.payload["type"].astext == TYPE,
+        SessionEvent.payload["type"].astext.in_([TYPE, LEGACY_TYPE]),
         SessionEvent.ai_generated.is_(False),
     )
 
@@ -114,7 +129,9 @@ async def command_guided(
         )
     )
     if receipt:
-        if receipt.payload["command"] != body.model_dump(mode="json"):
+        if {k: v for k, v in receipt.payload["command"].items() if v is not None} != (
+            body.model_dump(mode="json", exclude_none=True)
+        ):
             raise HTTPException(409, "This request ID was already used for a different action.")
         return {"state": await latest_state(session, game_session.id)}
     state: dict[str, Any] | None = await latest_state(session, game_session.id)
@@ -129,23 +146,101 @@ async def command_guided(
                 409, "This tutorial has already started. Open a new session to replay."
             )
         initial: dict[str, Any] = dict(
-            version=1,
+            version=2,
             revision=0,
-            phase="ready",
+            phase="lobby",
             participants={},
+            starters={},
+            seats={
+                str(m.user_id): {
+                    "player_name": m.user.display_name or "Player",
+                    "ready": False,
+                    "watching": False,
+                }
+                for m in members
+            },
             pending=None,
             result=None,
             intro=INTRO,
         )
         state = initial
-        narration = INTRO
+        narration = (
+            "The lobby is open. Choose a character or watch, then tell the host you are ready."
+        )
     else:
         if state is None:
             raise HTTPException(409, "Ask the host to start the tutorial first.")
         participants = state["participants"]
-        if body.action == "select":
-            if state["phase"] != "ready":
+        lobby_actions = {"ready", "unready", "watch", "join", "exclude", "begin"}
+        if body.action in lobby_actions:
+            if state["phase"] != "lobby":
+                raise HTTPException(409, "The lobby is closed. Join the next session to play.")
+            seats = state["seats"]
+            if body.action == "join":
+                if uid in seats:
+                    raise HTTPException(409, "You already have a place in this lobby.")
+                seats[uid] = dict(
+                    player_name=user.display_name or "Player", ready=False, watching=False
+                )
+                narration = f"{seats[uid]['player_name']} joins the lobby."
+            elif body.action == "exclude":
+                if not is_host:
+                    raise HTTPException(403, "Only the host can mark a player absent.")
+                target = str(body.target_user_id)
+                if target == uid or target not in seats:
+                    raise HTTPException(409, "Choose another player in this lobby.")
+                seat = seats.pop(target)
+                participants.pop(target, None)
+                narration = f"The host marked {seat['player_name']} absent for this introduction."
+            elif body.action == "begin":
+                if not is_host:
+                    raise HTTPException(403, "Only the host can begin the adventure.")
+                if not participants or not all(seat["ready"] for seat in seats.values()):
+                    raise HTTPException(
+                        409, "Wait for everyone to be ready, with at least one player."
+                    )
+                member_ids = {str(m.user_id) for m in members}
+                if set(seats) - member_ids:
+                    raise HTTPException(
+                        409, "Mark departed campaign members absent before beginning."
+                    )
+                for player_id, participant in participants.items():
+                    character = await session.get(Character, uuid.UUID(participant["character_id"]))
+                    if (
+                        character is None
+                        or str(character.player_id) != player_id
+                        or character.campaign_id != game_session.campaign_id
+                    ):
+                        raise HTTPException(
+                            409, "A selected character is unavailable. Choose again."
+                        )
+                state["phase"] = "ready"
+                narration = INTRO
+            else:
+                if uid not in seats:
+                    raise HTTPException(409, "Join the lobby first.")
+                if body.action == "watch":
+                    participants.pop(uid, None)
+                    seats[uid].update(watching=True, ready=True)
+                elif body.action == "ready":
+                    if uid not in participants and not seats[uid]["watching"]:
+                        raise HTTPException(409, "Choose a character or choose to watch first.")
+                    seats[uid]["ready"] = True
+                else:
+                    seats[uid]["ready"] = False
+                narration = f"{seats[uid]['player_name']} is " + (
+                    "ready to watch."
+                    if seats[uid]["ready"] and seats[uid]["watching"]
+                    else "ready to play."
+                    if seats[uid]["ready"]
+                    else "not ready yet."
+                )
+        elif body.action == "select":
+            selection_phase = "lobby" if state["version"] >= 2 else "ready"
+            if state["phase"] != selection_phase:
                 raise HTTPException(409, "Character selection is closed while a check is underway.")
+            if state["version"] >= 2 and uid not in state["seats"]:
+                raise HTTPException(409, "Join the lobby first.")
             if bool(body.character_id) == bool(body.pregen):
                 raise HTTPException(422, "Choose one of your characters or one starter character.")
             if body.character_id:
@@ -157,21 +252,32 @@ async def command_guided(
                 ):
                     raise HTTPException(403, "Choose a character you own in this campaign.")
             else:
-                # One starter per person per run, even if a fresh command ID is submitted.
-                if uid in participants:
+                # Reuse each starter template per person/run when switching characters.
+                if uid in participants and state["version"] == 1:
                     raise HTTPException(409, "You already chose a character for this tutorial.")
                 assert body.pregen is not None
                 sheet = PREGENS[body.pregen]
-                character = Character(
-                    campaign_id=game_session.campaign_id,
-                    player_id=user.id,
-                    name=sheet.name,
-                    level=sheet.level,
-                    sheet=sheet.to_sheet(),
+                starter_id = state.get("starters", {}).get(uid, {}).get(body.pregen)
+                character = (
+                    await session.get(Character, uuid.UUID(starter_id)) if starter_id else None
                 )
-                session.add(character)
-                await session.flush()
+                if character is None:
+                    character = Character(
+                        campaign_id=game_session.campaign_id,
+                        player_id=user.id,
+                        name=sheet.name,
+                        level=sheet.level,
+                        sheet=sheet.to_sheet(),
+                    )
+                    session.add(character)
+                    await session.flush()
+                    if state["version"] >= 2:
+                        state["starters"].setdefault(uid, {})[body.pregen] = str(character.id)
+                elif character.player_id != user.id:
+                    raise HTTPException(403, "You no longer control this starter character.")
             participants[uid] = {"character_id": str(character.id), "name": character.name}
+            if state["version"] >= 2:
+                state["seats"][uid].update(ready=False, watching=False)
             narration = f"{user.display_name or 'A player'} joins the rescue as {character.name}."
         elif body.action == "approach":
             if state["phase"] != "ready" or uid not in participants:
@@ -247,7 +353,7 @@ async def command_guided(
         actor_label="Guide",
         body=narration,
         payload={
-            "type": TYPE,
+            "type": TYPE if state["version"] >= 2 else LEGACY_TYPE,
             "state": state,
             "request_id": str(body.request_id),
             "command": body.model_dump(mode="json"),

@@ -15,6 +15,8 @@ import { useRoom } from "@/lib/useRoom";
 import { useAuthSession } from "@/lib/auth";
 import { WS_FORBIDDEN, WS_NOT_FOUND, WS_UNAUTHORIZED } from "@/lib/ws";
 
+import { isGuidedPayload } from "@/lib/guided";
+
 import Composer from "./Composer";
 import GuidedPanel from "./GuidedPanel";
 import DiceRoller from "./DiceRoller";
@@ -88,7 +90,7 @@ function SessionRoomContent({ sessionId }: { sessionId: string }) {
     };
   }, [api, sessionId]);
 
-  const guidedRevision = room.entries.findLast(e => e.kind === "narration" && e.payload.type === "guided_cart_v1")?.seq;
+  const guidedRevision = room.entries.findLast(e => e.kind === "narration" && isGuidedPayload(e.payload))?.seq;
   useEffect(() => {
     if (!api || !session || !guidedRevision) return;
     let cancelled = false;

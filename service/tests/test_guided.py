@@ -21,6 +21,14 @@ def command(action, revision, **extra):
     return dict(action=action, revision=revision, request_id=str(uuid.uuid4()), **extra)
 
 
+async def launch(client, path, dm, player):
+    for token, action, revision in [(dm, "watch", 2), (player, "ready", 3), (dm, "begin", 4)]:
+        response = await client.post(
+            path + "/guided", headers=_auth(token), json=command(action, revision)
+        )
+        assert response.status_code == 200, response.text
+
+
 @pytest.mark.parametrize("die,success", [(1, False), (20, True)])
 async def test_complete_rescue_and_retry(auth_client, mint_token, monkeypatch, die, success):
     class Fixed:
@@ -43,9 +51,10 @@ async def test_complete_rescue_and_retry(auth_client, mint_token, monkeypatch, d
     await act(dm, "start", 0)
     selected = await act(player, "select", 1, pregen="guardian")
     assert len(selected["participants"]) == 1
-    pending = await act(player, "approach", 2, approach="lift")
+    await launch(auth_client, path, dm, player)
+    pending = await act(player, "approach", 5, approach="lift")
     assert pending["pending"]["bonus"] == 5
-    roll = command("roll", 3)
+    roll = command("roll", 6)
     response = await auth_client.post(path + "/guided", headers=_auth(player), json=roll)
     assert response.status_code == 200, response.text
     state = response.json()["state"]
@@ -54,8 +63,8 @@ async def test_complete_rescue_and_retry(auth_client, mint_token, monkeypatch, d
     assert state["pending"] is None
     repeated = await auth_client.post(path + "/guided", headers=_auth(player), json=roll)
     assert repeated.json() == response.json()
-    assert len((await auth_client.get(path + "/log", headers=_auth(player))).json()) == 4
-    await act(dm, "continue", 4)
+    assert len((await auth_client.get(path + "/log", headers=_auth(player))).json()) == 7
+    await act(dm, "continue", 7)
     # A new read recovers both final state and the outcome after completion.
     replay = (await auth_client.get(path + "/guided", headers=_auth(player))).json()["state"]
     assert replay["phase"] == "complete"
@@ -78,18 +87,19 @@ async def test_authority_stale_commands_and_ended_session(auth_client, mint_toke
     selected = await post(player, command("select", 1, pregen="scholar"), 200)
     character = next(iter(selected["state"]["participants"].values()))["character_id"]
     await post(dm, command("select", 2, character_id=character), 403)
-    await post(player, command("select", 2, pregen="guardian"), 409)
-    await post(player, command("approach", 2, approach="leverage"), 200)
-    await post(dm, command("roll", 3), 403)
-    await post(player, command("roll", 3, total=20), 422)
-    await post(player, command("cancel", 3), 403)
-    await post(dm, command("cancel", 3), 200)
-    await post(player, command("roll", 3), 409)
-    await post(player, command("approach", 4, approach="leverage"), 200)
+    await launch(auth_client, path, dm, player)
+    await post(player, command("select", 5, pregen="guardian"), 409)
+    await post(player, command("approach", 5, approach="leverage"), 200)
+    await post(dm, command("roll", 6), 403)
+    await post(player, command("roll", 6, total=20), 422)
+    await post(player, command("cancel", 6), 403)
+    await post(dm, command("cancel", 6), 200)
+    await post(player, command("roll", 6), 409)
+    await post(player, command("approach", 7, approach="leverage"), 200)
     ended = await auth_client.post(path + "/end", headers=_auth(dm))
     assert ended.status_code == 200
-    await post(player, command("roll", 5), 409)
-    await post(dm, command("cancel", 5), 409)
+    await post(player, command("roll", 8), 409)
+    await post(dm, command("cancel", 8), 409)
     log = (await auth_client.get(path + "/log", headers=_auth(player))).json()
     assert log[-1]["payload"]["type"] == "session_ended"
     outsider = mint_token(sub="outsider", email="outsider@example.com")
