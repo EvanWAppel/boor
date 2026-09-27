@@ -4,6 +4,7 @@ import asyncio
 import uuid
 
 import pytest
+from fastapi import HTTPException
 
 from boor_service.ai import table
 from boor_service.ai.table import get_standin_client
@@ -157,7 +158,7 @@ async def test_timeout_clears_busy_state(auth_client, mint_token, monkeypatch):
 
 def test_live_model_is_opt_in(monkeypatch):
     monkeypatch.delenv("ENABLE_STANDINS", raising=False)
-    with pytest.raises(Exception) as exc:
+    with pytest.raises(HTTPException) as exc:
         next(get_standin_client())
     assert exc.value.status_code == 503
 

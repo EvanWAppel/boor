@@ -8,6 +8,8 @@
 //   const api = createApiClient({ baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL!, getToken });
 //   const me = await api.me();
 
+import type { GuidedCommand, GuidedState } from "./guided";
+
 import type {
   AcceptResult,
   Campaign,
@@ -125,6 +127,11 @@ export function createApiClient({ baseUrl, getToken }: ApiClientOptions) {
       request("PUT", `/sessions/${sessionId}/standins/${characterId}`, { enabled }),
     takeStandInTurn: (sessionId: string, characterId: string, requestId: string) =>
       request("POST", `/sessions/${sessionId}/standins/${characterId}/turn`, { request_id: requestId }),
+
+    getGuided: (sessionId: string) =>
+      request<{ state: GuidedState | null; status: string }>("GET", `/sessions/${sessionId}/guided`),
+    guidedCommand: (sessionId: string, command: GuidedCommand) =>
+      request<{ state: GuidedState }>("POST", `/sessions/${sessionId}/guided`, command),
 
     // play sessions (the theater-of-the-mind table)
     listSessions: (campaignId: string) =>

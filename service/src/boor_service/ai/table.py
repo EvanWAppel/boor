@@ -35,6 +35,7 @@ from boor_service.auth.dependencies import (
 )
 from boor_service.db import repository
 from boor_service.db.models import Character, EventKind, GameSession, SessionEvent, SessionStatus
+from boor_service.guided import latest_state
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -100,6 +101,8 @@ async def set_control(
     await session.refresh(game_session)
     if game_session.status != SessionStatus.active:
         raise HTTPException(409, "This session is not active.")
+    if body.enabled and await latest_state(session, game_session.id):
+        raise HTTPException(409, "Guided tutorials use player actions; AI turns are unavailable.")
     if body.enabled:
         profile = await repository.personality_profile_for(session, character=character)
         if profile is None or not profile.persona.strip():
@@ -146,6 +149,8 @@ async def take_turn(
     if previous is not None:
         return frame(previous)
     control = await control_event(session, game_session, character_id)
+    if await latest_state(session, game_session.id):
+        raise HTTPException(409, "Guided tutorials use player actions; AI turns are unavailable.")
     if game_session.status != SessionStatus.active or not control or not control.payload["enabled"]:
         raise HTTPException(409, "Enable this character's stand-in in an active session first.")
     # Recheck immediately before acquiring: the DB reads above may have yielded.
@@ -201,6 +206,7 @@ async def take_turn(
         )
         if (
             game_session.status != SessionStatus.active
+            or await latest_state(session, game_session.id) is not None
             or latest is None
             or latest_seq != control_seq
             or updated_context != context

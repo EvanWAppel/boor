@@ -16,6 +16,7 @@ import { useAuthSession } from "@/lib/auth";
 import { WS_FORBIDDEN, WS_NOT_FOUND, WS_UNAUTHORIZED } from "@/lib/ws";
 
 import Composer from "./Composer";
+import GuidedPanel from "./GuidedPanel";
 import DiceRoller from "./DiceRoller";
 import InitiativeTracker from "./InitiativeTracker";
 import Log from "./Log";
@@ -87,6 +88,16 @@ function SessionRoomContent({ sessionId }: { sessionId: string }) {
     };
   }, [api, sessionId]);
 
+  const guidedRevision = room.entries.findLast(e => e.kind === "narration" && e.payload.type === "guided_cart_v1")?.seq;
+  useEffect(() => {
+    if (!api || !session || !guidedRevision) return;
+    let cancelled = false;
+    api.listCharacters(session.campaign_id).then(chars => {
+      if (!cancelled) setCharacters(chars);
+    }).catch(() => { /* existing sheets remain available until reconnect */ });
+    return () => { cancelled = true; };
+  }, [api, session, guidedRevision]);
+
   if (!api) {
     return (
       <div className="m-auto max-w-md p-8 text-center text-sm text-stone-400">
@@ -99,6 +110,8 @@ function SessionRoomContent({ sessionId }: { sessionId: string }) {
 
   const isDm = myRole === "dm";
   const connected = room.status === "open";
+  const ended = session?.status === "ended" || room.entries.some(e => e.kind === "system" && e.payload.type === "session_ended");
+  const writable = connected && !ended;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -108,7 +121,7 @@ function SessionRoomContent({ sessionId }: { sessionId: string }) {
             {session?.title ?? "The table"}
           </h1>
           <p className="text-xs text-stone-500">
-            {session ? `${session.status} · ` : ""}
+            {session ? `${ended ? "ended" : session.status} · ` : ""}
             {room.present.length} present
           </p>
         </div>
@@ -132,34 +145,37 @@ function SessionRoomContent({ sessionId }: { sessionId: string }) {
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-0 lg:grid-cols-[1fr_20rem]">
         {/* The log + composer: the conversation and narration. */}
         <div className="flex min-h-0 flex-col border-r border-stone-800">
+          <GuidedPanel api={api} sessionId={sessionId} campaignId={session?.campaign_id} entries={room.entries} characters={characters}
+            myId={myId} isHost={isDm} connected={connected} ended={ended} />
           <Log entries={room.entries} />
           <Composer
             onChat={room.sendChat}
             onOoc={room.sendOoc}
-            disabled={!connected}
+            disabled={!writable}
           />
         </div>
 
         {/* Table tools. */}
         <aside className="min-h-0 space-y-3 overflow-y-auto p-3">
-          <Panel title="Dice">
-            <DiceRoller api={api} onRoll={room.sendRoll} disabled={!connected} />
+          {!guidedRevision && <><Panel title="Dice">
+            <DiceRoller api={api} onRoll={room.sendRoll} disabled={!writable} />
           </Panel>
           <Panel title="Initiative">
             <InitiativeTracker
               initiative={room.initiative}
-              canEdit={isDm && connected}
+              canEdit={isDm && writable}
               onChange={room.setInitiative}
             />
           </Panel>
+          </>}
           <Panel title="At the table">
             <Presence present={room.present} />
           </Panel>
-          <Panel title="AI stand-ins">
+          {!guidedRevision && <Panel title="AI stand-ins">
             <StandInPanel api={api} sessionId={sessionId} characters={characters}
-              myId={myId} isDm={isDm} connected={connected && session?.status === "active"}
+              myId={myId} isDm={isDm} connected={writable && session?.status === "active"}
               entries={room.entries} thinking={room.thinking} />
-          </Panel>
+          </Panel>}
           <Panel title="Party">
             <SheetPanel characters={characters} />
           </Panel>

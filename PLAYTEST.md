@@ -12,6 +12,24 @@ Live app: https://web-production-0e6881.up.railway.app/
 3. Christine opens the campaign link while signed in with the invited email. She
    can create her character and enter a session you've started.
 
+## Guided introduction (Evan + Evil Evan)
+
+1. Open a fresh active session as Evan and enter the same table as Evil Evan.
+2. As the host, click **Start guided introduction**.
+3. Choose a starter character on each account (or an existing owned character).
+4. As Evil Evan, choose an approach. Evan should see who is rolling and a waiting
+   message. Only Evil Evan gets the roll button.
+5. Roll. Both accounts should see the same die, character bonus, total, and story
+   outcome. A low total still rescues the cart, with a different consequence.
+6. Refresh both pages. The outcome remains, with no second roll available.
+7. As Evan, click **Finish the introduction**. Start another session to swap leads
+   or try the other approach.
+8. In a separate attempt, end the session while a check is pending. Neither account
+   should be able to roll or send new chat. The log stays readable.
+
+This is one scene and one party check. Combat and the longer adventure are next.
+It runs without AI calls. The host can release a pending check if its player leaves.
+
 ## Human-DM acceptance pass
 
 - Both people can enter the same session and see each other's presence.
