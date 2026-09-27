@@ -17,7 +17,8 @@ See [GUIDED-PLAY-PLAN.md](GUIDED-PLAY-PLAN.md) for the longer roadmap.
 - [ ] GUIDE-02 — Playtest with Evan and Evil Evan using PLAYTEST.md; collect where the next action is unclear.
 - [x] GUIDE-LOBBY — Shared character-selection lobby, explicit readiness, spectators, host start, absent/rejoin controls, and version-one compatibility.
 - [x] GUIDE-TALK — Outcome-aware conversation with Mara, three shared questions without dice, a persisted party destination and ending, and v1/v2 compatibility.
-- [ ] GUIDE-03 — Expand into the 20–30 minute adventure: more scenes, bounded combat, and wrap-up. Custom approaches and pause/resume remain planned.
+- [x] GUIDE-COMBAT — Optional bounded sparring: rolled initiative, owned turns, practice HP, strike/dodge/withdraw, automatic opponent, five-round limit, host stop, replay and duplicate-turn protection. No campaign HP or inventory mutation.
+- [ ] GUIDE-03 — Expand into the 20–30 minute adventure: more scenes, broader combat encounters, and wrap-up. Custom approaches and pause/resume remain planned.
 
 ## Phase 0 — Foundations
 

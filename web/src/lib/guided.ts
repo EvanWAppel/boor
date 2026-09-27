@@ -1,8 +1,10 @@
 export interface GuidedState {
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   revision: number;
-  phase: "lobby" | "ready" | "check" | "outcome" | "conversation" | "decision" | "complete";
+  phase: "lobby" | "ready" | "check" | "outcome" | "conversation" | "decision" | "combat" | "combat_outcome" | "complete";
   intro: string;
+  encounter?: PracticeEncounter | null;
+  practice_skipped?: boolean;
   conversation?: {
     intro: string;
     questions: { id: "road" | "river" | "mara"; label: string }[];
@@ -18,7 +20,8 @@ export interface GuidedState {
 export interface GuidedCommand {
   request_id: string;
   revision: number;
-  action: "start" | "select" | "approach" | "roll" | "cancel" | "continue" | "ready" | "unready" | "watch" | "join" | "exclude" | "begin" | "ask" | "choose";
+  action: "start" | "select" | "approach" | "roll" | "cancel" | "continue" | "ready" | "unready" | "watch" | "join" | "exclude" | "begin" | "ask" | "choose" | "combat_action" | "stop_practice" | "skip_practice";
+  move?: "strike" | "dodge" | "withdraw";
   topic?: "road" | "river" | "mara";
   choice?: "town" | "river";
   target_user_id?: string;
@@ -28,5 +31,17 @@ export interface GuidedCommand {
 }
 
 export function isGuidedPayload(payload: Record<string, unknown>): boolean {
-  return payload.type === "guided_cart_v1" || payload.type === "guided_cart_v2" || payload.type === "guided_cart_v3";
+  return payload.type === "guided_cart_v1" || payload.type === "guided_cart_v2" || payload.type === "guided_cart_v3" || payload.type === "guided_cart_v4";
+}
+
+export interface PracticeEncounter {
+  intro: string;
+  fighters: Record<string, { name: string; user_id: string | null; hp: number; max_hp: number;
+    ac: number; bonus: number; damage: string; initiative: number; dodging: boolean; withdrawn: boolean }>;
+  order: string[];
+  index: number;
+  round: number;
+  max_rounds: number;
+  messages: string[];
+  outcome: { reason: "victory" | "defeat" | "withdrawn" | "limit"; body: string } | null;
 }

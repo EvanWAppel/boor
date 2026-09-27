@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from boor_service import realtime
+from boor_service import guided_combat, realtime
 from boor_service.auth.dependencies import CurrentUser, GameSessionForMember, SessionDep
 from boor_service.character import Character as Sheet
 from boor_service.db import repository
@@ -38,8 +38,8 @@ from boor_service.guided_story import (
 from boor_service.mechanics import ability_check
 
 router = APIRouter()
-TYPE = "guided_cart_v3"
-EVENT_TYPES = {1: "guided_cart_v1", 2: "guided_cart_v2", 3: TYPE}
+TYPE = "guided_cart_v4"
+EVENT_TYPES = {1: "guided_cart_v1", 2: "guided_cart_v2", 3: "guided_cart_v3", 4: TYPE}
 INTRO = (
     "On the river road to Emberlow, a delivery cart has slipped into a muddy rut. "
     "Its driver, Mara, holds the reins while the river rises beside the road. "
@@ -86,7 +86,11 @@ class Command(BaseModel):
         "begin",
         "ask",
         "choose",
+        "combat_action",
+        "stop_practice",
+        "skip_practice",
     ]
+    move: Literal["strike", "dodge", "withdraw"] | None = None
     topic: Literal["road", "river", "mara"] | None = None
     choice: Literal["town", "river"] | None = None
     target_user_id: uuid.UUID | None = None
@@ -157,7 +161,9 @@ async def command_guided(
                 409, "This tutorial has already started. Open a new session to replay."
             )
         initial: dict[str, Any] = dict(
-            version=3,
+            version=4,
+            encounter=None,
+            practice_skipped=False,
             conversation=None,
             revision=0,
             phase="lobby",
@@ -385,6 +391,36 @@ async def command_guided(
                 narration = (
                     f"{character.name} chooses for the party: {CHOICES[body.choice]}. {ending}"
                 )
+        elif body.action in {"combat_action", "stop_practice", "skip_practice"}:
+            if body.action == "skip_practice":
+                if not is_host:
+                    raise HTTPException(403, "Only the host can skip the practice lesson.")
+                if state["version"] < 4 or state["phase"] != "decision":
+                    raise HTTPException(409, "Practice can only be skipped before it begins.")
+                state.update(phase="complete", practice_skipped=True)
+                narration = (
+                    "The party finishes the introduction without the optional practice bout."
+                )
+            else:
+                if state["phase"] != "combat" or not state.get("encounter"):
+                    raise HTTPException(409, "There is no active practice bout.")
+                if body.action == "stop_practice":
+                    if not is_host:
+                        raise HTTPException(403, "Only the host can stop practice for everyone.")
+                    guided_combat.stop_encounter(state["encounter"])
+                else:
+                    if body.move is None:
+                        raise HTTPException(422, "Choose a practice action.")
+                    if guided_combat.current_actor(state["encounter"]) != uid:
+                        raise HTTPException(403, "Wait for your character's turn.")
+                    fighter = state["encounter"]["fighters"][uid]
+                    character = await session.get(Character, uuid.UUID(fighter["character_id"]))
+                    if character is None or character.player_id != user.id:
+                        raise HTTPException(403, "You no longer control this character.")
+                    guided_combat.take_action(state["encounter"], uid, body.move)
+                if state["encounter"]["outcome"]:
+                    state["phase"] = "combat_outcome"
+                narration = " ".join(state["encounter"]["messages"])
         elif body.action == "cancel":
             if not is_host or state["phase"] != "check":
                 raise HTTPException(403, "Only the host can release a pending check.")
@@ -405,6 +441,30 @@ async def command_guided(
                     ending=None,
                 )
                 state["phase"] = "conversation"
+            elif state["phase"] == "decision" and state["version"] >= 4:
+                party = []
+                current_members = {str(m.user_id) for m in members}
+                for player_id, participant in participants.items():
+                    if player_id not in current_members:
+                        continue
+                    character = await session.get(Character, uuid.UUID(participant["character_id"]))
+                    if character is None or str(character.player_id) != player_id:
+                        raise HTTPException(
+                            409, "A character is unavailable. Finish without practice."
+                        )
+                    party.append((player_id, str(character.id), Sheet.from_sheet(character.sheet)))
+                if not party:
+                    raise HTTPException(409, "No playing members remain. Finish without practice.")
+                state["encounter"] = guided_combat.start_encounter(
+                    party, state["conversation"]["ending"]["choice"]
+                )
+                state["phase"] = "combat_outcome" if state["encounter"]["outcome"] else "combat"
+                narration = " ".join(state["encounter"]["messages"])
+            elif state["phase"] == "combat_outcome" and state["version"] >= 4:
+                state["phase"] = "complete"
+                narration = (
+                    "Introduction complete. You made story choices and practiced combat turns."
+                )
             elif state["phase"] == "outcome" or (
                 state["phase"] == "decision" and state["version"] >= 3
             ):
