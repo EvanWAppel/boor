@@ -36,13 +36,22 @@ Live app: https://web-production-0e6881.up.railway.app/
 9. Discuss the next stop in chat, then have one player choose town or river. The
    first accepted choice settles the party's destination; it cannot be overwritten
    by the other account. Refresh and verify that the answers and ending remain.
-10. As Evan, click **Finish the introduction**. Start another session to swap leads
-    or try different choices. Introductions started before this update still end
-    after the rescue, without the conversation scene.
-11. In a separate attempt, end the session while a check or conversation is pending. Neither account
-   should be able to act or send new chat. The log stays readable.
+10. As Evan, click **Start practice bout**, or **Finish without practice** to skip it.
+    Initiative and practice HP appear for both characters and Mara. Only the current
+    player's account gets action buttons. Mara acts automatically.
+11. Try **Strike Mara** and **Dodge**. Both accounts should see the same attack result,
+    damage, and next turn. Refresh mid-bout: HP and whose turn it is must remain.
+    **Withdraw from practice** takes just that character out; the host can stop the
+    whole bout if someone leaves. At zero practice HP a character sits out. The
+    lesson ends after five rounds at most, and never changes the campaign sheets.
+12. After victory, defeat, withdrawal, or timeout, click **Finish the introduction**.
+    Refresh again to verify the saved result. Start another session to try different
+    choices. Older introductions retain the ending they originally shipped with.
+13. In a separate attempt, end the session during practice. Neither account should
+    be able to act or send new chat. The log stays readable.
 
-This is a two-scene introduction with one party check. Combat and the longer adventure are next.
+This is a short introduction with a rescue, conversation, and optional sparring.
+Movement, spellcasting, death saves, inventory, and broader combat encounters are next.
 It runs without AI calls. The host can release a pending check if its player leaves.
 
 ## Human-DM acceptance pass

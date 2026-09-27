@@ -7,6 +7,7 @@ import { isGuidedPayload, type GuidedCommand, type GuidedState } from "@/lib/gui
 import type { Character } from "@/lib/types";
 import type { LogEntry } from "@/lib/useRoom";
 import ConversationPanel from "./ConversationPanel";
+import CombatPanel from "./CombatPanel";
 
 const button = "rounded-lg border border-amber-700/60 bg-amber-950/50 px-4 py-3 text-left text-sm text-amber-100 hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40";
 
@@ -64,8 +65,8 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
 
   return <section className="max-h-[65dvh] shrink-0 space-y-4 overflow-y-auto border-b border-amber-900/50 bg-stone-950 p-5" aria-label="Guided adventure" aria-busy={busy}>
     <div>
-      <p className="text-xs uppercase tracking-widest text-amber-500">Learn by playing · {state && state.version < 3 ? "5" : "10"} minute introduction</p>
-      <h2 className="mt-1 text-2xl font-semibold text-amber-100">{state?.conversation ? "A word with Mara" : "The river-road rescue"}</h2>
+      <p className="text-xs uppercase tracking-widest text-amber-500">Learn by playing · {state && state.version < 3 ? "5" : state?.version === 3 ? "10" : "15"} minute introduction</p>
+      <h2 className="mt-1 text-2xl font-semibold text-amber-100">{state?.encounter ? "Practice with Mara" : state?.conversation ? "A word with Mara" : "The river-road rescue"}</h2>
     </div>
     {error && <div role="alert" className="text-sm text-rose-300">{error}
       {!loaded && !state && <button className={`${button} ml-3`} onClick={() => setReload(n => n + 1)}>Reload adventure</button>}
@@ -130,7 +131,8 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
           : <p role="status" className="text-sm text-amber-200">Waiting for {state.pending.name}’s player to roll. You can cheer them on in chat.</p>)}
         {!ended && isHost && <button className="ml-3 text-xs text-stone-400 underline disabled:opacity-40" disabled={disabled} onClick={() => act("cancel")}>Release check so someone else can act</button>}
       </>}
-      {state.conversation && <ConversationPanel state={state} canPlay={Boolean(me)} isHost={isHost} disabled={disabled} ended={ended} act={act} />}
+      {state.conversation && !state.encounter && <ConversationPanel state={state} canPlay={Boolean(me)} isHost={isHost} disabled={disabled} ended={ended} act={act} />}
+      {state.encounter && <CombatPanel state={state} myId={myId} isHost={isHost} disabled={disabled} ended={ended} act={act} />}
       {state.result && !state.conversation && <div className="space-y-2 rounded-lg border border-emerald-900 bg-emerald-950/20 p-4" role="status">
         <p className="font-mono text-lg text-emerald-200">{state.result.die} {state.result.bonus >= 0 ? "+" : "−"} {Math.abs(state.result.bonus)} = {state.result.total} · target {state.result.dc}</p>
         <p className="text-sm text-stone-200">{state.result.outcome}</p>
@@ -140,7 +142,7 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
         : <p className="text-sm text-amber-200">Your host will continue once everyone has read the outcome.</p>)}
       {state.phase === "complete" && <div className="space-y-2 text-sm text-stone-300">
         <h3 className="font-semibold text-amber-100">Introduction complete</h3>
-        <p>You chose an approach, rolled a check{state.conversation ? ", spoke with Mara, and chose a destination" : ", and changed the story"}. That’s the basic rhythm of play.</p>
+        <p>You chose an approach, rolled a check{state.conversation ? ", spoke with Mara, and chose a destination" : ", and changed the story"}{state.encounter ? ", and practiced combat turns" : ""}. That’s the basic rhythm of play.</p>
         <p>This introduction ends here. Start a new session from your campaign to try different choices or let another player lead.</p>
       </div>}
     </>}

@@ -76,7 +76,7 @@ async def test_dialogue_no_rolls_shared_answers_and_one_destination(
     revision += 1
     assert (await post(player, "choose", revision, choice="town")).status_code == 409
     assert (await post(player, "continue", revision)).status_code == 403
-    assert (await post(host, "continue", revision)).status_code == 200
+    assert (await post(host, "skip_practice", revision)).status_code == 200
     retry = await auth_client.post(path + "/guided", headers=_auth(player), json=choose)
     assert retry.json()["state"]["phase"] == "complete"
     assert retry.json()["state"]["conversation"]["ending"]["choice"] == "river"

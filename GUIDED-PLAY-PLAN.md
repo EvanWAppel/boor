@@ -364,3 +364,26 @@ attribution survive refresh and reconnect. Spectators read without choosing.
 The introduction is now approximately ten minutes and two scenes. Existing v1/v2
 runs retain their original ending and receipt behavior; no migration is required.
 Combat, custom actions, pause/resume, and the full 20–30 minute chapter remain next.
+
+## Guided combat follow-up
+
+New version-four introductions offer optional sparring with Mara after the party
+chooses a destination. The location follows that choice. The host can begin or
+skip the lesson. Everyone receives a practice staff using their stronger physical
+ability and proficiency bonus. Initiative rolls order turns; on their own turn,
+a player strikes, dodges, or safely withdraws. Mara's attacks resolve automatically
+and rotate targets by round. The existing attack, critical-damage, and damage-defense
+engine resolves the rules. A dodge lasts until that character's next turn starts.
+
+Practice HP, armor class, attacks, defenses, order, and round are frozen into the
+encounter snapshot. This is temporary training state, not campaign HP or equipment.
+At zero practice HP a character sits out; there are no death saves in this lesson.
+Everyone recovers after practice. Victory, party defeat, withdrawal, a host stop,
+or the five-round limit ends the encounter; the host then finishes the introduction.
+The host stop is the recovery path if the active player disconnects or leaves.
+
+Actions use the same locked, revisioned, idempotent command path as story choices.
+Older v1–v3 runs keep their original endings. No database migration is required.
+Movement, spells, normal adventuring HP/resources, and expanded encounter content
+remain outside this slice. The introduction now takes roughly fifteen minutes
+when the optional practice is included.

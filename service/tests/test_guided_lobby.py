@@ -26,7 +26,7 @@ async def test_lobby_ready_watch_reselect_and_begin(auth_client, mint_token):
             return state
 
     state = await act(host, "start")
-    assert state["phase"] == "lobby" and state["version"] == 3
+    assert state["phase"] == "lobby" and state["version"] == 4
     assert len(state["seats"]) == 2
     await act(host, "begin", 409)
     await act(player, "ready", 409)
