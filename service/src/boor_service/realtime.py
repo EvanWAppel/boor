@@ -33,6 +33,7 @@ from boor_service.db.models import (
     GameSession,
     MembershipRole,
     SessionEvent,
+    SessionStatus,
     User,
 )
 from boor_service.knowledge import normalize_visibility, presence_may_receive
@@ -238,6 +239,15 @@ async def _handle_message(
     if frame_type == "ping":
         await socket.send_json({"type": "pong"})
         return
+    if frame_type in {*_PERSISTED_KINDS, "initiative"}:
+        await db.execute(
+            select(GameSession.id).where(GameSession.id == session_id).with_for_update()
+        )
+        await db.refresh(game_session)
+        if game_session.status == SessionStatus.ended:
+            await db.commit()
+            await socket.send_json({"type": "error", "body": "This session has ended."})
+            return
     if frame_type == "initiative":
         if presence.role is not MembershipRole.dm:
             return
@@ -288,8 +298,15 @@ async def _handle_message(
         # rolls) it sees the real person. Fall back to the real name when the
         # speaker has no character (e.g. a DM speaking in character).
         label = presence.display_name
-        if event_kind is EventKind.in_character and presence.character_name:
-            label = presence.character_name
+        if event_kind is EventKind.in_character:
+            from boor_service.guided import latest_state
+
+            state = await latest_state(db, session_id)
+            participant = state["participants"].get(str(user.id)) if state else None
+            if participant:
+                label = participant["name"]
+            elif presence.character_name:
+                label = presence.character_name
         event = await repository.append_event(
             db,
             game_session=game_session,
@@ -374,6 +391,7 @@ async def handle_connection(
                 db=db,
                 room=room,
             )
+            await db.commit()
     except WebSocketDisconnect:
         pass
     finally:

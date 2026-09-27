@@ -343,9 +343,11 @@ async def append_event(
     public to the table so existing chat/dice callers stay unchanged.
     """
     parsed_audience, parsed_visible_to = normalize_visibility(audience, visible_to)
-    await session.execute(
-        select(GameSession.id).where(GameSession.id == game_session.id).with_for_update()
+    status = await session.scalar(
+        select(GameSession.status).where(GameSession.id == game_session.id).with_for_update()
     )
+    if status == SessionStatus.ended:
+        raise ValueError("This session has ended and is read-only.")
     next_seq = (
         await session.execute(
             select(func.coalesce(func.max(SessionEvent.seq), 0)).where(
@@ -372,6 +374,12 @@ async def append_event(
 
 async def end_session(session: AsyncSession, *, game_session: GameSession) -> GameSession:
     """Mark a session ended and stamp ``ended_at``."""
+    await session.execute(
+        select(GameSession.id).where(GameSession.id == game_session.id).with_for_update()
+    )
+    await session.refresh(game_session)
+    if game_session.status == SessionStatus.ended:
+        return game_session
     game_session.status = SessionStatus.ended
     game_session.ended_at = datetime.now(UTC)
     await session.flush()

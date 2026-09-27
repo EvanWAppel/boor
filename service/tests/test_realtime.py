@@ -422,7 +422,9 @@ async def test_player_cannot_change_initiative(
     from boor_service.db.models import Campaign, GameSession
 
     game = await session.get(GameSession, session_id)
+    assert game is not None
     campaign = await session.get(Campaign, game.campaign_id)
+    assert campaign is not None
     player = await sync_user(session, clerk_user_id="player_i", email="player_i@example.com")
     invite = await invite_player(session, campaign=campaign, email=player.email, invited_by=dm)
     await accept_invite(session, token=invite.token, user=player)
@@ -478,3 +480,29 @@ def test_presence_counts_people_not_browser_tabs():
     assert room.roster(session_id) == [person]
     room.leave(session_id, first)
     assert room.roster(session_id) == [person]
+
+
+async def test_ended_room_rejects_chat_rolls_and_initiative(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    from boor_service.db.models import GameSession
+    from boor_service.db.repository import end_session, session_timeline
+
+    user, session_id = await _member_session(session, clerk_id="ended", email="ended@example.com")
+    game = await session.get(GameSession, session_id)
+    assert game is not None
+    await end_session(session, game_session=game)
+    await session.commit()
+    ws = FakeWebSocket(
+        token=mint_token(sub="ended", email=user.email),
+        incoming=[
+            {"type": "chat", "body": "Too late"},
+            {"type": "roll", "body": "20"},
+            {"type": "initiative", "order": ["Late"], "activeIndex": 0},
+            {"type": "ping"},
+        ],
+    )
+    await handle_connection(ws, session_id, session, clerk_verifier, SessionHub())
+    assert len([m for m in ws.sent if m["type"] == "error"]) == 3
+    assert any(m["type"] == "pong" for m in ws.sent)
+    assert await session_timeline(session, game_session=game) == []

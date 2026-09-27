@@ -25,10 +25,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from boor_service import mechanics, realtime
+from boor_service import guided, mechanics, realtime
 from boor_service.ai.actions import ActionType
 from boor_service.ai.guardrails import RedLine, RedLineKind
 from boor_service.ai.table import router as standin_router
@@ -688,7 +688,22 @@ async def get_session_log(
 @app.post("/sessions/{session_id}/end", response_model=SessionOut)
 async def end_game_session(game_session: GameSessionForDM, session: SessionDep) -> SessionOut:
     """Mark a session ended — DM only."""
+    await session.execute(
+        select(GameSession.id).where(GameSession.id == game_session.id).with_for_update()
+    )
+    await session.refresh(game_session)
+    event = await repository.append_event(
+        session, game_session=game_session, kind=EventKind.system,
+        body="The host ended this session. The table is now read-only.",
+        payload={"type": "session_ended"},
+    ) if game_session.status != SessionStatus.ended else None
     ended = await repository.end_session(session, game_session=game_session)
+    await session.commit()
+    if event:
+        await realtime.hub.broadcast(game_session.id, {
+            "type": "event", "seq": event.seq, "kind": "system", "body": event.body,
+            "payload": event.payload, "audience": "table",
+        })
     return _session_out(ended)
 
 
@@ -769,3 +784,4 @@ async def session_ws(
 
 
 app.include_router(standin_router)
+app.include_router(guided.router)
