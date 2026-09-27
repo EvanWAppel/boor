@@ -20,9 +20,12 @@ Live app: https://web-production-0e6881.up.railway.app/
    Both accounts should appear in the lobby with their character and readiness.
    Click **I’m ready** on each. **Begin adventure** stays disabled until everyone
    is ready; changing a character makes that person not ready again. As Evan,
-   click **Begin adventure**. To host without playing, choose **Watch this introduction**.
+   click **Begin adventure**. To host without playing, choose **Join as spectator**.
    If someone is missing, the host can mark them absent; they can rejoin while
    the lobby is open. Refresh during setup to check that readiness is saved.
+   With the host watching and the player not ready, check that the host sees
+   who is holding up the start and the player is prompted to click **I’m ready**.
+   If both accounts watch, the lobby should explain that someone must play a character.
 4. As Evil Evan, choose an approach. Evan should see who is rolling and a waiting
    message. Only Evil Evan gets the roll button.
 5. Roll. Both accounts should see the same die, character bonus, total, and story

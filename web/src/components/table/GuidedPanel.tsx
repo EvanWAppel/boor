@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ApiError, type ApiClient } from "@/lib/api";
 import { isGuidedPayload, type GuidedCommand, type GuidedState } from "@/lib/guided";
+import { lobbyStatus } from "@/lib/lobby";
 import type { Character } from "@/lib/types";
 import type { LogEntry } from "@/lib/useRoom";
 import ConversationPanel from "./ConversationPanel";
@@ -30,8 +31,7 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
   const me = myId ? state?.participants[myId] : null;
   const seat = myId ? state?.seats?.[myId] : null;
   const inLobby = state?.phase === "lobby";
-  const allReady = Boolean(state && Object.keys(state.participants).length > 0 &&
-    Object.values(state.seats ?? {}).every(s => s.ready));
+  const lobby = state ? lobbyStatus(state, myId, isHost) : null;
   const disabled = busy || !connected || ended || (!loaded && !state) || !myId || canRetry;
 
   useEffect(() => {
@@ -94,14 +94,15 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
         {!ended && !seat && <button className={button} disabled={disabled} onClick={() => act("join")}>Join this lobby</button>}
         {!ended && seat && <div className="flex flex-wrap gap-2">
           {(me || seat.watching) && <button className={button} disabled={disabled} onClick={() => act(seat.ready ? "unready" : "ready")}>{seat.ready ? "Not ready yet" : "I’m ready"}</button>}
-          {!seat.watching && <button className={button} disabled={disabled} onClick={() => act("watch")}>Watch this introduction</button>}
+          {!seat.watching && <button className={button} disabled={disabled} onClick={() => act("watch")}>Join as spectator</button>}
           {(me || seat.watching) && <button className={button} disabled={disabled} onClick={() => setChanging(!changing)}>{changing ? "Keep my choice" : seat.watching ? "Play a character instead" : "Change character"}</button>}
         </div>}
+        {!ended && seat?.watching && <p className="text-sm text-stone-300">You’re watching as a spectator. You can follow the story and chat once the host begins. To take actions, choose “Play a character instead”.</p>}
+        {!ended && <p role="status" className="text-sm text-amber-200">{lobby?.message}</p>}
         {!ended && isHost && <div className="space-y-2">
-          <button className={button} disabled={disabled || !allReady} onClick={() => act("begin")}>Begin adventure</button>
-          <p className="text-xs text-stone-400">Everyone listed must be ready, with at least one playing character. Mark missing players absent; they can rejoin before you begin.</p>
+          <button className={button} disabled={disabled || !lobby?.canBegin} onClick={() => act("begin")}>Begin adventure</button>
+          <p className="text-xs text-stone-400">The host can play or watch. Mark missing players absent; they can rejoin before you begin.</p>
         </div>}
-        {!isHost && <p role="status" className="text-sm text-amber-200">The host will begin when everyone is ready.</p>}
       </>}
       {Object.keys(state.participants).length > 0 && <p className="text-xs text-stone-400">Rescue party: {Object.values(state.participants).map(p => p.name).join(", ")}{me ? ` · You are ${me.name}` : ""}</p>}
       {!ended && ((inLobby && seat && ((!me && !seat.watching) || changing)) || (state.version === 1 && state.phase === "ready" && !me)) && <>

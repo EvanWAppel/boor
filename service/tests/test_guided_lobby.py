@@ -128,3 +128,46 @@ async def test_legacy_ready_state_and_receipts_still_work(
         assert response.status_code == 200, response.text
     assert response.json()["state"]["phase"] == "complete"
     assert not response.json()["state"].get("conversation")
+
+
+async def test_selected_player_can_switch_to_watching_and_resume(auth_client, mint_token):
+    """Reported flow: host watches, player selects, then chooses to watch too."""
+    path, host, player = await setup(auth_client, mint_token)
+    host_id = (await auth_client.get("/me", headers=_auth(host))).json()["id"]
+    player_id = (await auth_client.get("/me", headers=_auth(player))).json()["id"]
+    for token, action, revision, extra in [
+        (host, "start", 0, {}),
+        (host, "watch", 1, {}),
+        (player, "select", 2, {"pregen": "scholar"}),
+    ]:
+        response = await auth_client.post(
+            path + "/guided", headers=_auth(token), json=command(action, revision, **extra)
+        )
+        assert response.status_code == 200, response.text
+    watch = command("watch", 3)
+    for _ in range(2):  # An ambiguous network retry must keep the same outcome.
+        response = await auth_client.post(path + "/guided", headers=_auth(player), json=watch)
+        assert response.status_code == 200, response.text
+        state = response.json()["state"]
+        assert state["revision"] == 4
+        assert state["participants"] == {}
+        assert state["seats"][player_id]["watching"]
+        assert state["seats"][player_id]["ready"]
+        assert state["seats"][host_id]["watching"]
+    for token in [host, player]:
+        replay = (await auth_client.get(path + "/guided", headers=_auth(token))).json()["state"]
+        assert replay == state
+    blocked = await auth_client.post(
+        path + "/guided", headers=_auth(host), json=command("begin", 4)
+    )
+    assert blocked.status_code == 409  # Everyone watching cannot start play.
+    for token, action, revision, extra in [
+        (player, "select", 4, {"pregen": "scholar"}),
+        (player, "ready", 5, {}),
+        (host, "begin", 6, {}),
+    ]:
+        response = await auth_client.post(
+            path + "/guided", headers=_auth(token), json=command(action, revision, **extra)
+        )
+        assert response.status_code == 200, response.text
+    assert response.json()["state"]["phase"] == "ready"
