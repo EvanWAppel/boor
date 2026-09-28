@@ -18,7 +18,7 @@ See [GUIDED-PLAY-PLAN.md](GUIDED-PLAY-PLAN.md) for the longer roadmap.
 - [x] GUIDE-LOBBY — Shared character-selection lobby, explicit readiness, spectators, host start, absent/rejoin controls, and version-one compatibility.
 - [x] GUIDE-TALK — Outcome-aware conversation with Mara, three shared questions without dice, a persisted party destination and ending, and v1/v2 compatibility.
 - [x] GUIDE-COMBAT — Optional bounded sparring: rolled initiative, owned turns, practice HP, strike/dodge/withdraw, automatic opponent, five-round limit, host stop, replay and duplicate-turn protection. No campaign HP or inventory mutation.
-- [ ] GUIDE-03 — Expand into the 20–30 minute adventure: more scenes, broader combat encounters, and wrap-up. Custom approaches and pause/resume remain planned.
+- [~] GUIDE-03 — Expand into the 20–30 minute adventure. **Data-driven scene graph landed (v5, `guided_scenes.py`):** cart check → Mara conversation → a branch-specific second check (town gate: Persuasion/Insight · river landing: Perception/Stealth) → a real two-enemy fight with target selection → recap. `guided_combat` generalized to an authored enemy roster + targeting (Mara sparring path unchanged); v1–v4 runs dispatch to the legacy machine untouched and new runs start at v5. Non-lethal, encounter-scoped combat; DCs stay visible; sparring dropped from v5. Service ruff/ty/pytest green (v1–v5, 30 guided tests); web lint/build/tests green. **Still planned:** custom "try something else" approaches, pause/resume, and a real two-account playtest of the full chapter (feeds GUIDE-02).
 
 ## Phase 0 — Foundations
 

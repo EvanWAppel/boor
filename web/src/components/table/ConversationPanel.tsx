@@ -43,9 +43,10 @@ export default function ConversationPanel({ state, canPlay, isHost, disabled, en
     </div>}
     {!ended && state.phase === "decision" && (isHost
       ? <div className="space-y-3">
-          {state.version >= 4 && <p className="text-sm text-stone-300">Next: Mara offers an optional sparring lesson. Learn turns, attacks, and dodging with padded staffs and temporary practice HP. You can stop at any time.</p>}
-          <button className={button} disabled={disabled} onClick={() => act("continue")}>{state.version >= 4 ? "Start practice bout" : "Finish the introduction"}</button>
-          {state.version >= 4 && <button className="ml-3 text-sm text-stone-400 underline disabled:opacity-40" disabled={disabled} onClick={() => act("skip_practice")}>Finish without practice</button>}
+          {state.version >= 5 && <p className="text-sm text-stone-300">Next: the party heads toward {state.conversation?.ending?.choice === "town" ? "Emberlow" : "the old ferry landing"}.</p>}
+          {state.version === 4 && <p className="text-sm text-stone-300">Next: Mara offers an optional sparring lesson. Learn turns, attacks, and dodging with padded staffs and temporary practice HP. You can stop at any time.</p>}
+          <button className={button} disabled={disabled} onClick={() => act("continue")}>{state.version >= 5 ? "Continue" : state.version === 4 ? "Start practice bout" : "Finish the introduction"}</button>
+          {state.version === 4 && <button className="ml-3 text-sm text-stone-400 underline disabled:opacity-40" disabled={disabled} onClick={() => act("skip_practice")}>Finish without practice</button>}
         </div>
       : <p className="text-sm text-amber-200">Your host will continue once everyone has read the outcome.</p>)}
     {state.result && <details className="text-sm text-stone-400">

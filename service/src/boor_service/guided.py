@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from boor_service import guided_combat, realtime
+from boor_service import guided_combat, guided_scenes, realtime
 from boor_service.auth.dependencies import CurrentUser, GameSessionForMember, SessionDep
 from boor_service.character import Character as Sheet
 from boor_service.db import repository
@@ -38,8 +38,14 @@ from boor_service.guided_story import (
 from boor_service.mechanics import ability_check
 
 router = APIRouter()
-TYPE = "guided_cart_v4"
-EVENT_TYPES = {1: "guided_cart_v1", 2: "guided_cart_v2", 3: "guided_cart_v3", 4: TYPE}
+TYPE = "guided_cart_v5"
+EVENT_TYPES = {
+    1: "guided_cart_v1",
+    2: "guided_cart_v2",
+    3: "guided_cart_v3",
+    4: "guided_cart_v4",
+    5: TYPE,
+}
 INTRO = (
     "On the river road to Emberlow, a delivery cart has slipped into a muddy rut. "
     "Its driver, Mara, holds the reins while the river rises beside the road. "
@@ -96,7 +102,11 @@ class Command(BaseModel):
     target_user_id: uuid.UUID | None = None
     character_id: uuid.UUID | None = None
     pregen: Literal["guardian", "scholar"] | None = None
-    approach: Literal["lift", "leverage"] | None = None
+    # Widened for v5 authored scenes (each scene validates its own approach ids);
+    # the v1-v4 path still checks membership in APPROACHES before use.
+    approach: str | None = None
+    # Combat target key (an enemy fighter id) for v5 encounters with more than one foe.
+    target: str | None = None
 
 
 def events_query(session_id: uuid.UUID):
@@ -161,7 +171,7 @@ async def command_guided(
                 409, "This tutorial has already started. Open a new session to replay."
             )
         initial: dict[str, Any] = dict(
-            version=4,
+            version=guided_scenes.VERSION,
             encounter=None,
             practice_skipped=False,
             conversation=None,
@@ -180,6 +190,14 @@ async def command_guided(
             pending=None,
             result=None,
             intro=INTRO,
+            # v5 scene-graph fields; populated once the host begins the adventure.
+            scene=None,
+            scenes={},
+            recap=None,
+            scene_title=None,
+            scene_intro=None,
+            goal=None,
+            actions=[],
         )
         state = initial
         narration = (
@@ -232,8 +250,13 @@ async def command_guided(
                         raise HTTPException(
                             409, "A selected character is unavailable. Choose again."
                         )
-                state["phase"] = "ready"
-                narration = INTRO
+                if state["version"] >= 5:
+                    narration = await guided_scenes.enter_scene(
+                        session, state, guided_scenes.FIRST_SCENE, members
+                    )
+                else:
+                    state["phase"] = "ready"
+                    narration = INTRO
             else:
                 if uid not in seats:
                     raise HTTPException(409, "Join the lobby first.")
@@ -297,10 +320,13 @@ async def command_guided(
             if state["version"] >= 2:
                 state["seats"][uid].update(ready=False, watching=False)
             narration = f"{user.display_name or 'A player'} joins the rescue as {character.name}."
+        elif state["version"] >= 5:
+            # v5 runs walk the data-driven scene graph; v1-v4 keep the branches below.
+            narration = await guided_scenes.apply(session, state, body, user, is_host, members)
         elif body.action == "approach":
             if state["phase"] != "ready" or uid not in participants:
                 raise HTTPException(409, "Choose your character and wait for an open action.")
-            if body.approach is None:
+            if body.approach not in APPROACHES:
                 raise HTTPException(422, "Choose an approach.")
             character = await session.get(Character, uuid.UUID(participants[uid]["character_id"]))
             if character is None or character.player_id != user.id:

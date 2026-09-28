@@ -387,3 +387,31 @@ Older v1–v3 runs keep their original endings. No database migration is require
 Movement, spells, normal adventuring HP/resources, and expanded encounter content
 remain outside this slice. The introduction now takes roughly fifteen minutes
 when the optional practice is included.
+
+## Expanded chapter follow-up (v5, GUIDE-03)
+
+The introduction now continues past the town/river destination into the fuller
+river-road chapter, built as a **data-driven scene graph** (`guided_scenes.py`)
+rather than another hand-written phase. A version-five run walks a declarative
+graph of scenes; adding a scene is authoring (a scene definition plus a transition),
+not new state-machine code. The shared session lock, idempotency receipts, revision
+checks, event append, and broadcast are reused unchanged, as is the lobby. The v1–v4
+hand-written machine is left exactly as it shipped and is dispatched only for runs
+already at those versions; new runs start at v5.
+
+The graph: **cart check → conversation with Mara → a branch-specific second check**
+(town → Emberlow's night gate, teaching Persuasion or Insight; river → the old ferry
+landing, teaching Perception or Stealth) **→ a real two-enemy fight with explicit
+target selection → a recap**. The second check teaches a different kind of check than
+the cart's Athletics/Investigation, and a failed roll never dead-ends — it only makes
+the coming fight tougher (softened vs. ready enemies). The fight generalizes the
+existing sparring engine to an authored enemy roster and target legality; it stays
+non-lethal and encounter-scoped (no campaign HP or inventory mutation), with authored
+consequences for victory, defeat, withdrawal, and the round limit. The recap states
+what the party did and where the next session begins.
+
+Decisions (see `DECISIONS.md`, 2026-09-27): two enemies with target selection (not a
+lone foe); the optional Mara sparring bout is dropped from v5 (the real fight now
+teaches combat) but its code stays for in-flight v4 runs; DCs remain visible for
+teaching. Custom "try something else" approaches and pause/resume remain planned, and
+a real two-account playtest of the full chapter (GUIDE-02) is the next validation step.
