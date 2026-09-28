@@ -57,10 +57,17 @@ Live app: https://web-production-0e6881.up.railway.app/
 13. In a separate attempt, end the session during the fight. Neither account should be
     able to act or send new chat. The log stays readable.
 
+At any check scene (cart, gate, or landing), a playing account can type into **Try
+something else** and submit a free-form idea. Everyone sees the proposal; the offered
+action buttons are disabled until the host responds. As the host, either click **Run
+as …** to run it as one of the offered checks (the player who proposed becomes the
+roller) or type a reason and **Send reply instead**. The proposed text stays in the log
+either way. Refresh mid-proposal: the open proposal is preserved.
+
 This is the expanded ~20-minute introduction: a rescue, a conversation, a branch-specific
 second check, and a real bounded fight, ending in a recap. It runs without AI calls.
-Custom "try something else" approaches, pause/resume, movement, spellcasting, death saves,
-and inventory are next. The host can release a pending check if its player leaves.
+Pause/resume, movement, spellcasting, death saves, and inventory are next. The host can
+release a pending check if its player leaves.
 
 ## Human-DM acceptance pass
 

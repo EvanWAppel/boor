@@ -95,6 +95,9 @@ class Command(BaseModel):
         "combat_action",
         "stop_practice",
         "skip_practice",
+        "propose",
+        "accept_proposal",
+        "decline_proposal",
     ]
     move: Literal["strike", "dodge", "withdraw"] | None = None
     topic: Literal["road", "river", "mara"] | None = None
@@ -107,6 +110,8 @@ class Command(BaseModel):
     approach: str | None = None
     # Combat target key (an enemy fighter id) for v5 encounters with more than one foe.
     target: str | None = None
+    # Free-form proposal text (v5 "try something else") or a host's decline reason.
+    text: str | None = Field(default=None, max_length=500)
 
 
 def events_query(session_id: uuid.UUID):
@@ -198,6 +203,7 @@ async def command_guided(
             scene_intro=None,
             goal=None,
             actions=[],
+            proposal=None,
         )
         state = initial
         narration = (

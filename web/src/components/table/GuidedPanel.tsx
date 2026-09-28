@@ -11,6 +11,7 @@ import ConversationPanel from "./ConversationPanel";
 import CombatPanel from "./CombatPanel";
 
 const button = "rounded-lg border border-amber-700/60 bg-amber-950/50 px-4 py-3 text-left text-sm text-amber-100 hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40";
+const textarea = "w-full max-w-2xl rounded-lg border border-stone-700 bg-stone-900/60 p-2 text-sm text-stone-100 placeholder:text-stone-500 disabled:opacity-40";
 
 export default function GuidedPanel({ api, sessionId, campaignId, entries, characters, myId, isHost, connected, ended }: {
   api: ApiClient; sessionId: string; campaignId?: string; entries: LogEntry[]; characters: Character[];
@@ -25,6 +26,8 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
   // Keep the same command on ambiguous network failure: retry must never roll twice.
   const retry = useRef<GuidedCommand | null>(null);
   const [canRetry, setCanRetry] = useState(false);
+  const [proposalText, setProposalText] = useState("");
+  const [declineText, setDeclineText] = useState("");
   const latest = entries.findLast(e => e.kind === "narration" && !e.aiGenerated && isGuidedPayload(e.payload));
   const live = latest?.payload.state as GuidedState | undefined;
   const state = live && live.revision >= (snapshot?.revision ?? 0) ? live : snapshot;
@@ -120,7 +123,7 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
         <p className="text-xs text-stone-400">Starter characters are saved to your campaign. No character sheet to fill out.</p>
       </>}
       {!ended && state.version >= 2 && state.phase === "ready" && !me && <p role="status" className="text-sm text-amber-200">You’re watching this introduction. Follow the story and join the discussion in chat. Choose a character in the next session to play.</p>}
-      {!ended && state.phase === "ready" && me && <>
+      {!ended && state.phase === "ready" && me && !state.proposal && <>
         <h3 className="font-medium text-stone-100">How will you help?</h3>
         <p className="text-sm text-stone-400">Discuss it in chat. Any player who has chosen a character can take the lead; the first choice starts the party’s check.</p>
         <div className="flex flex-wrap gap-2">
@@ -131,7 +134,26 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
               <button className={button} disabled={disabled} onClick={() => act("approach", { approach: "leverage" })}>Find a spot to use a branch as a lever<br /><span className="text-xs text-stone-400">Uses reasoning · Investigation</span></button>
             </>}
         </div>
+        {v5 && <div className="space-y-2">
+          <label htmlFor="guided-proposal" className="block text-xs text-stone-400">Something else in mind? Describe it and the host will decide how to handle it.</label>
+          <textarea id="guided-proposal" className={textarea} rows={2} maxLength={500} value={proposalText} disabled={disabled} placeholder="e.g. I look for a plank to wedge under the wheel" onChange={e => setProposalText(e.target.value)} />
+          <button className={button} disabled={disabled || !proposalText.trim()} onClick={() => { act("propose", { text: proposalText.trim() }); setProposalText(""); }}>Try something else</button>
+        </div>}
       </>}
+      {v5 && state.phase === "ready" && state.proposal && <div className="space-y-2 rounded-lg border border-amber-800/60 bg-amber-950/20 p-4">
+        <p className="text-sm text-amber-200">{state.proposal.name} wants to try something else:</p>
+        <p className="text-sm italic text-stone-200">“{state.proposal.text}”</p>
+        {!ended && isHost
+          ? <div className="space-y-2">
+              <p className="text-xs text-stone-400">Run it as one of the offered actions, or reply with a reason if it isn’t possible here.</p>
+              <div className="flex flex-wrap gap-2">
+                {(state.actions ?? []).map(a => <button key={a.id} className={button} disabled={disabled} onClick={() => act("accept_proposal", { approach: a.id })}>Run as {a.label}<br /><span className="text-xs text-stone-400">{a.hint}</span></button>)}
+              </div>
+              <textarea className={textarea} rows={2} maxLength={500} value={declineText} disabled={disabled} placeholder="Reply if this isn’t possible here" onChange={e => setDeclineText(e.target.value)} />
+              <button className={button} disabled={disabled || !declineText.trim()} onClick={() => { act("decline_proposal", { text: declineText.trim() }); setDeclineText(""); }}>Send reply instead</button>
+            </div>
+          : <p role="status" className="text-sm text-amber-200">{state.proposal.user_id === myId ? "Your idea is with the host." : "Waiting for the host to respond to the proposal."}</p>}
+      </div>}
       {state.phase === "check" && state.pending && <>
         <h3 className="font-medium text-stone-100">{v5 ? "" : "3. "}{state.pending.name} takes the lead</h3>
         <p className="text-sm text-stone-300">{state.pending.label}. A check answers whether an uncertain action works. Roll a twenty-sided die; your character adds {state.pending.bonus >= 0 ? "+" : ""}{state.pending.bonus}. A total of {state.pending.dc} or more succeeds.</p>
