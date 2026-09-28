@@ -6,10 +6,16 @@ import uuid
 import pytest
 
 from boor_service import guided_combat as combat
+from boor_service import guided_scenes
 from boor_service.character import Character
 from tests.test_guided import command
 from tests.test_guided_conversation import open_conversation
 from tests.test_session_api import _auth
+
+
+@pytest.fixture(autouse=True)
+def _legacy_version(monkeypatch):
+    monkeypatch.setattr(guided_scenes, "VERSION", 4)
 
 
 class Sequence:
@@ -98,6 +104,80 @@ def test_inactive_characters_are_skipped_and_not_targeted():
     assert "attacks Second" in encounter["messages"][1]
     combat.stop_encounter(encounter)
     assert encounter["outcome"]["reason"] == "withdrawn"
+
+
+BATTLE_TEXT = {
+    "victory": "The foes are driven off.",
+    "defeat": "You are overwhelmed but pulled to safety.",
+    "withdrawn": "You break off and slip away.",
+    "limit": "The skirmish breaks up.",
+}
+
+
+def battle(party, *, enemies, rng):
+    return combat.start_battle(
+        party, enemies, intro="A fight breaks out.", descriptions=BATTLE_TEXT, rng=rng
+    )
+
+
+def test_battle_requires_and_validates_a_target():
+    enemies = [
+        combat.Enemy("wolf1", "Grey wolf", hp=6, ac=11, bonus=3, damage="1d4"),
+        combat.Enemy("wolf2", "Lean wolf", hp=6, ac=11, bonus=3, damage="1d4"),
+    ]
+    # Hero rolls initiative first (players before enemies), then the two wolves roll.
+    encounter = battle([("hero", "c", sheet())], enemies=enemies, rng=Sequence([15, 1, 1]))
+    assert combat.current_actor(encounter) == "hero"
+    assert set(combat.enemy_targets(encounter)) == {"wolf1", "wolf2"}
+    with pytest.raises(ValueError):
+        combat.take_action(encounter, "hero", "strike", rng=Sequence([20, 3]))
+    with pytest.raises(ValueError):
+        combat.take_action(encounter, "hero", "strike", target="mara", rng=Sequence([20, 3]))
+
+
+def test_battle_victory_needs_all_enemies_down():
+    enemies = [
+        combat.Enemy("wolf1", "Grey wolf", hp=6, ac=1, bonus=-5, damage="1d4"),
+        combat.Enemy("wolf2", "Lean wolf", hp=6, ac=1, bonus=-5, damage="1d4"),
+    ]
+    encounter = battle([("hero", "c", sheet())], enemies=enemies, rng=Sequence([15, 1, 1]))
+    # Hero crits wolf1 (20 + 6 + 6); the surviving wolf2 then misses on its -5 attack (roll 2).
+    combat.take_action(encounter, "hero", "strike", target="wolf1", rng=Sequence([20, 6, 6, 2]))
+    assert encounter["fighters"]["wolf1"]["hp"] == 0
+    # One enemy still stands, so the fight continues (wolves miss on -5 to hit).
+    assert encounter["outcome"] is None
+    assert combat.enemy_targets(encounter) == ["wolf2"]
+    # A lone remaining enemy no longer needs an explicit target.
+    combat.take_action(encounter, "hero", "strike", rng=Sequence([20, 6, 6]))
+    assert encounter["outcome"]["reason"] == "victory"
+    assert encounter["outcome"]["body"] == BATTLE_TEXT["victory"]
+
+
+def test_battle_lines_do_not_mention_practice():
+    enemies = [combat.Enemy("wolf1", "Grey wolf", hp=6, ac=1, bonus=10, damage="1d4")]
+    encounter = battle([("hero", "c", sheet())], enemies=enemies, rng=Sequence([15, 1]))
+    combat.take_action(encounter, "hero", "strike", rng=Sequence([20, 6, 6]))
+    joined = " ".join(encounter["messages"])
+    assert "practice" not in joined.lower()
+    assert "HP lost" in joined
+
+
+def test_pre_migration_sparring_bout_finishes_without_keyerror():
+    # A v4 bout persisted before this change has no descriptions/labels keys.
+    encounter = combat.start_encounter([("hero", "c", sheet())], "town", rng=Sequence([20, 1]))
+    del encounter["labels"], encounter["descriptions"]
+    combat.take_action(encounter, "hero", "strike", rng=Sequence([20, 6, 6]))
+    assert encounter["outcome"]["reason"] == "victory"
+    assert "Everyone recovers after practice" in encounter["outcome"]["body"]
+    assert "practice HP lost" in " ".join(encounter["messages"])
+
+
+def test_pre_migration_bout_stop_keeps_sparring_wording():
+    encounter = combat.start_encounter([("hero", "c", sheet())], "river", rng=Sequence([20, 1]))
+    del encounter["labels"], encounter["descriptions"]
+    combat.stop_encounter(encounter)
+    assert encounter["outcome"]["reason"] == "withdrawn"
+    assert encounter["messages"][0] == "The host stops the practice bout for the party."
 
 
 async def open_practice(client, mint_token):

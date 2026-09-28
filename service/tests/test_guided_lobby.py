@@ -4,10 +4,16 @@ import uuid
 
 import pytest
 
+from boor_service import guided_scenes
 from boor_service.db.models import EventKind, GameSession
 from boor_service.db.repository import append_event
 from tests.test_guided import command, setup
 from tests.test_session_api import _auth
+
+
+@pytest.fixture(autouse=True)
+def _legacy_version(monkeypatch):
+    monkeypatch.setattr(guided_scenes, "VERSION", 4)
 
 
 async def test_lobby_ready_watch_reselect_and_begin(auth_client, mint_token):

@@ -1,7 +1,9 @@
+export interface GuidedAction { id: string; label: string; skill: string; hint: string }
+
 export interface GuidedState {
-  version: 1 | 2 | 3 | 4;
+  version: 1 | 2 | 3 | 4 | 5;
   revision: number;
-  phase: "lobby" | "ready" | "check" | "outcome" | "conversation" | "decision" | "combat" | "combat_outcome" | "complete";
+  phase: "lobby" | "ready" | "check" | "outcome" | "conversation" | "decision" | "combat" | "combat_outcome" | "recap" | "complete";
   intro: string;
   encounter?: PracticeEncounter | null;
   practice_skipped?: boolean;
@@ -16,6 +18,13 @@ export interface GuidedState {
   participants: Record<string, { character_id: string; name: string }>;
   pending: { user_id: string; name: string; label: string; skill: string; bonus: number; dc: number } | null;
   result: { die: number; bonus: number; total: number; dc: number; success: boolean; outcome: string } | null;
+  // v5 scene-graph projection (absent on v1-v4 runs).
+  scene?: string | null;
+  scene_title?: string | null;
+  scene_intro?: string | null;
+  goal?: string | null;
+  actions?: GuidedAction[];
+  recap?: { lines: string[]; next: string } | null;
 }
 export interface GuidedCommand {
   request_id: string;
@@ -27,12 +36,17 @@ export interface GuidedCommand {
   target_user_id?: string;
   character_id?: string;
   pregen?: "guardian" | "scholar";
-  approach?: "lift" | "leverage";
+  approach?: string;
+  target?: string;
 }
 
+const GUIDED_TYPES = new Set(["guided_cart_v1", "guided_cart_v2", "guided_cart_v3", "guided_cart_v4", "guided_cart_v5"]);
 export function isGuidedPayload(payload: Record<string, unknown>): boolean {
-  return payload.type === "guided_cart_v1" || payload.type === "guided_cart_v2" || payload.type === "guided_cart_v3" || payload.type === "guided_cart_v4";
+  return typeof payload.type === "string" && GUIDED_TYPES.has(payload.type);
 }
+
+// v5 check scenes (as opposed to the conversation, battle, and recap scenes).
+export const CHECK_SCENES = new Set(["cart", "gate", "landing"]);
 
 export interface PracticeEncounter {
   intro: string;

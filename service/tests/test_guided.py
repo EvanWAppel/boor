@@ -4,9 +4,15 @@ import uuid
 
 import pytest
 
-from boor_service import guided
+from boor_service import guided, guided_scenes
 from boor_service.mechanics import ability_check
 from tests.test_session_api import _auth, _campaign_with_player
+
+
+@pytest.fixture(autouse=True)
+def _legacy_version(monkeypatch):
+    """These suites are the v1-v4 regression guard; pin fresh runs to the legacy v4."""
+    monkeypatch.setattr(guided_scenes, "VERSION", 4)
 
 
 async def setup(client, mint_token):

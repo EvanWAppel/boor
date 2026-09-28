@@ -128,3 +128,36 @@ the agent slice (which *is* real and tested), not the undeployed table.
 **Remaining gates (Evan-only):** (1) Railway deploy → adds a live link;
 (2) flip the private repo public + apply branch protection → makes the GitHub
 link work. See `BLOCKED.md`.
+
+---
+
+## Guided adventure v5: data-driven scene graph (2026-09-27) — GUIDE-03
+
+**Decision:** expand the guided introduction from the ~15-minute cart/Mara/sparring
+slice into the fuller river-road chapter by introducing a **data-driven scene graph**
+(new `guided_scenes.py`) instead of bolting another version-guarded phase onto the
+`guided.py` machine. A v5 run walks a declarative graph — cart check → Mara
+conversation → a branch-specific second check (town: Persuasion/Insight gate;
+river: Perception/Stealth landing) → a real two-enemy fight with target selection →
+recap. Chosen after confirming with Evan (both the architecture and the four content
+additions: destination scene, real combat, wrap-up recap, and a second uncertain-action).
+
+**Trade-off:** more upfront work than a v5-bolt-on (a scene registry + a generic
+per-scene handler that projects into the client-facing fields), but adding future
+scenes becomes authoring — a scene definition plus a transition — with no new phase
+enum or version guard. The v1–v4 hand-written machine is left **byte-for-byte
+untouched** and now dispatched only for runs already at those versions; new runs
+start at v5. The v1–v4 test suites are pinned to the legacy version via an autouse
+`guided_scenes.VERSION` monkeypatch so they keep guarding the legacy path.
+
+**Sub-decisions (Evan-confirmed):**
+- **Combat:** two enemies with an explicit target-selection step (exercises target
+  legality per GUIDED-PLAY-PLAN §G4), not a single lone foe. `guided_combat` was
+  generalized to an enemy roster while the Mara sparring path stayed identical.
+- **Sparring dropped from v5:** the real encounter now teaches combat, so v5 omits
+  the optional Mara sparring bout. Its code remains for in-flight v4 runs.
+- **DCs stay visible** to players in v5 (consistent with the existing teaching style),
+  rather than hidden difficulty numbers.
+- **No permanent loss / no campaign mutation:** the fight is encounter-scoped HP with
+  authored non-lethal consequences for defeat/withdrawal, matching the intro's safety
+  scope. Custom approaches and pause/resume remain follow-up work.
