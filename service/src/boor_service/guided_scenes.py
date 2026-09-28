@@ -245,6 +245,7 @@ async def enter_scene(session: AsyncSession, state: dict, scene_id: str, members
         state["phase"] = "ready"
         state["pending"] = None
         state["result"] = None
+        state["proposal"] = None
         return _project_check(state, scene, _cart_success(state))
     if scene_id == MARA:
         success = _cart_success(state)
@@ -369,9 +370,70 @@ async def _apply_check(session, state: dict, body, user, is_host, members) -> st
     scene = CHECK_SCENES[state["scene"]]
     uid = str(user.id)
     participants = state["participants"]
+    if body.action == "propose":
+        if state["phase"] != "ready" or uid not in participants:
+            raise HTTPException(409, "You can propose an action when it is time to choose one.")
+        if state.get("proposal"):
+            raise HTTPException(409, "A proposal is already with the host. Wait for their reply.")
+        text = (body.text or "").strip()
+        if not text:
+            raise HTTPException(422, "Describe what you want to try.")
+        character = await session.get(Character, uuid.UUID(participants[uid]["character_id"]))
+        if character is None or character.player_id != user.id:
+            raise HTTPException(403, "You no longer control this character.")
+        state["proposal"] = {"user_id": uid, "name": character.name, "text": text}
+        return f"{character.name} proposes: “{text}” — waiting for the host to respond."
+    if body.action == "accept_proposal":
+        if not is_host:
+            raise HTTPException(403, "Only the host can respond to a proposal.")
+        proposal = state.get("proposal")
+        if not proposal or state["phase"] != "ready":
+            raise HTTPException(409, "There is no proposal to accept right now.")
+        approach = next((a for a in scene.approaches if a.id == body.approach), None)
+        if approach is None:
+            raise HTTPException(422, "Choose which offered action best fits the proposal.")
+        proposer = proposal["user_id"]
+        if proposer not in participants:
+            raise HTTPException(409, "The player who proposed is no longer in the party.")
+        character = await session.get(Character, uuid.UUID(participants[proposer]["character_id"]))
+        if character is None or str(character.player_id) != proposer:
+            raise HTTPException(409, "That character is unavailable. Ask them to choose again.")
+        bonus = Sheet.from_sheet(character.sheet).skill_bonus(approach.skill)
+        state["pending"] = dict(
+            user_id=proposer,
+            character_id=str(character.id),
+            name=character.name,
+            approach=approach.id,
+            label=approach.label,
+            skill=approach.skill,
+            bonus=bonus,
+            dc=scene.dc,
+        )
+        state["phase"] = "check"
+        state["proposal"] = None
+        return (
+            f"The host takes {character.name}'s idea (“{proposal['text']}”) as {approach.label}. "
+            f"Roll a twenty-sided die; the app adds {bonus:+}."
+        )
+    if body.action == "decline_proposal":
+        if not is_host:
+            raise HTTPException(403, "Only the host can respond to a proposal.")
+        proposal = state.get("proposal")
+        if not proposal or state["phase"] != "ready":
+            raise HTTPException(409, "There is no proposal to respond to right now.")
+        reason = (body.text or "").strip()
+        if not reason:
+            raise HTTPException(422, "Give a short reason so the player knows what to do next.")
+        state["proposal"] = None
+        return (
+            f"The host responds to {proposal['name']}'s idea (“{proposal['text']}”): {reason} "
+            "Choose one of the offered actions to continue."
+        )
     if body.action == "approach":
         if state["phase"] != "ready" or uid not in participants:
             raise HTTPException(409, "Choose your character and wait for an open action.")
+        if state.get("proposal"):
+            raise HTTPException(409, "The host is responding to a proposal. Wait for their reply.")
         approach = next((a for a in scene.approaches if a.id == body.approach), None)
         if approach is None:
             raise HTTPException(422, "Choose one of the offered approaches.")

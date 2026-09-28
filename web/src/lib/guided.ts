@@ -25,11 +25,12 @@ export interface GuidedState {
   goal?: string | null;
   actions?: GuidedAction[];
   recap?: { lines: string[]; next: string } | null;
+  proposal?: { user_id: string; name: string; text: string } | null;
 }
 export interface GuidedCommand {
   request_id: string;
   revision: number;
-  action: "start" | "select" | "approach" | "roll" | "cancel" | "continue" | "ready" | "unready" | "watch" | "join" | "exclude" | "begin" | "ask" | "choose" | "combat_action" | "stop_practice" | "skip_practice";
+  action: "start" | "select" | "approach" | "roll" | "cancel" | "continue" | "ready" | "unready" | "watch" | "join" | "exclude" | "begin" | "ask" | "choose" | "combat_action" | "stop_practice" | "skip_practice" | "propose" | "accept_proposal" | "decline_proposal";
   move?: "strike" | "dodge" | "withdraw";
   topic?: "road" | "river" | "mara";
   choice?: "town" | "river";
@@ -38,6 +39,7 @@ export interface GuidedCommand {
   pregen?: "guardian" | "scholar";
   approach?: string;
   target?: string;
+  text?: string;
 }
 
 const GUIDED_TYPES = new Set(["guided_cart_v1", "guided_cart_v2", "guided_cart_v3", "guided_cart_v4", "guided_cart_v5"]);
