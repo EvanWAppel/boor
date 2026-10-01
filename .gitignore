@@ -2,3 +2,4 @@
 RECRUITER-PRIMER.md
 .env*
 .pnpm-store/
+.tmp/

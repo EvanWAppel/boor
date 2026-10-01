@@ -20,9 +20,12 @@ Live app: https://web-production-0e6881.up.railway.app/
    Both accounts should appear in the lobby with their character and readiness.
    Click **I’m ready** on each. **Begin adventure** stays disabled until everyone
    is ready; changing a character makes that person not ready again. As Evan,
-   click **Begin adventure**. To host without playing, choose **Watch this introduction**.
+   click **Begin adventure**. To host without playing, choose **Join as spectator**.
    If someone is missing, the host can mark them absent; they can rejoin while
    the lobby is open. Refresh during setup to check that readiness is saved.
+   With the host watching and the player not ready, check that the host sees
+   who is holding up the start and the player is prompted to click **I’m ready**.
+   If both accounts watch, the lobby should explain that someone must play a character.
 4. As Evil Evan, choose an approach. Evan should see who is rolling and a waiting
    message. Only Evil Evan gets the roll button.
 5. Roll. Both accounts should see the same die, character bonus, total, and story
@@ -36,23 +39,28 @@ Live app: https://web-production-0e6881.up.railway.app/
 9. Discuss the next stop in chat, then have one player choose town or river. The
    first accepted choice settles the party's destination; it cannot be overwritten
    by the other account. Refresh and verify that the answers and ending remain.
-10. As Evan, click **Start practice bout**, or **Finish without practice** to skip it.
-    Initiative and practice HP appear for both characters and Mara. Only the current
-    player's account gets action buttons. Mara acts automatically.
-11. Try **Strike Mara** and **Dodge**. Both accounts should see the same attack result,
-    damage, and next turn. Refresh mid-bout: HP and whose turn it is must remain.
-    **Withdraw from practice** takes just that character out; the host can stop the
-    whole bout if someone leaves. At zero practice HP a character sits out. The
-    lesson ends after five rounds at most, and never changes the campaign sheets.
-12. After victory, defeat, withdrawal, or timeout, click **Finish the introduction**.
-    Refresh again to verify the saved result. Start another session to try different
-    choices. Older introductions retain the ending they originally shipped with.
-13. In a separate attempt, end the session during practice. Neither account should
-    be able to act or send new chat. The log stays readable.
+10. Continue past the destination. A **second, different check** appears for the branch
+    you chose — the town path is Emberlow's gate (Persuasion/Insight); the river path is
+    the old ferry landing (Perception/Stealth). Pick an approach, then have the designated
+    player **Roll**. A low roll still continues the story — it only makes the fight ahead
+    tougher (it must never dead-end). Both accounts see the same result.
+11. Continue into a **real fight** with two enemies. Initiative and HP appear for both
+    characters and both foes. On your turn you get a **Strike** button per living enemy
+    (choose your target), plus **Dodge** and **Withdraw**. Enemies act automatically.
+    Refresh mid-fight: HP, the turn order, and whose turn it is must remain. At zero HP
+    a character sits out; the host can **Stop the fight for everyone**. No one takes
+    lasting harm and campaign sheets never change — this fight is encounter-scoped.
+12. After victory, defeat, withdrawal, or the round limit, click **Continue** to read the
+    **recap** (what you did + where the next session begins), then **Finish the
+    introduction**. Refresh to verify the saved result. Start another session to try the
+    other branch. Older introductions (v1–v4) retain the ending they originally shipped with.
+13. In a separate attempt, end the session during the fight. Neither account should be
+    able to act or send new chat. The log stays readable.
 
-This is a short introduction with a rescue, conversation, and optional sparring.
-Movement, spellcasting, death saves, inventory, and broader combat encounters are next.
-It runs without AI calls. The host can release a pending check if its player leaves.
+This is the expanded ~20-minute introduction: a rescue, a conversation, a branch-specific
+second check, and a real bounded fight, ending in a recap. It runs without AI calls.
+Custom "try something else" approaches, pause/resume, movement, spellcasting, death saves,
+and inventory are next. The host can release a pending check if its player leaves.
 
 ## Human-DM acceptance pass
 

@@ -3,13 +3,19 @@
 import asyncio
 import uuid
 
+import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from boor_service import guided
+from boor_service import guided, guided_scenes
 from boor_service.db.models import GameSession, User
 from tests.test_guided import command, setup
 from tests.test_session_api import _auth
+
+
+@pytest.fixture(autouse=True)
+def _legacy_version(monkeypatch):
+    monkeypatch.setattr(guided_scenes, "VERSION", 4)
 
 
 async def open_conversation(client, mint_token, *, host_plays=False):
