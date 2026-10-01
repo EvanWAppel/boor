@@ -93,3 +93,17 @@ async def test_pause_is_unavailable_in_the_lobby(auth_client, mint_token):
     started = r.json()["state"]
     assert started["paused"] is None
     assert (await post(auth_client, path, host, "pause", started["revision"])).status_code == 409
+
+
+async def test_pause_edge_cases(auth_client, mint_token, monkeypatch):
+    monkeypatch.setattr(guided_scenes, "ability_check", fixed_check(20))
+    path, host, player, state, act = await begin(auth_client, mint_token)
+    # A note or resume with nothing paused is a conflict.
+    assert (
+        await post(auth_client, path, player, "pause_note", state["revision"], text="hi")
+    ).status_code == 409
+    # The host joined as a spectator here; spectators can pause too.
+    paused = await act(host, "pause", state["revision"])
+    assert paused["paused"]["note"] is None
+    resumed = await act(host, "resume", paused["revision"])
+    assert resumed["paused"] is None

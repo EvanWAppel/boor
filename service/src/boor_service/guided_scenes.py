@@ -376,6 +376,7 @@ async def apply(
 
 
 PAUSE_ACTIONS = {"pause", "pause_note", "resume"}
+V5_ONLY_ACTIONS = PAUSE_ACTIONS | {"propose", "accept_proposal", "decline_proposal"}
 
 
 def _apply_pause(state: dict, body, user, is_host: bool) -> str:

@@ -334,6 +334,9 @@ async def command_guided(
         elif state["version"] >= 5:
             # v5 runs walk the data-driven scene graph; v1-v4 keep the branches below.
             narration = await guided_scenes.apply(session, state, body, user, is_host, members)
+        elif body.action in guided_scenes.V5_ONLY_ACTIONS:
+            # Never let a v5-only action fall through to the legacy "continue" branch.
+            raise HTTPException(409, "This action isn't available in this version of the intro.")
         elif body.action == "approach":
             if state["phase"] != "ready" or uid not in participants:
                 raise HTTPException(409, "Choose your character and wait for an open action.")

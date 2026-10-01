@@ -68,7 +68,7 @@ async def begin(client, mint_token):
 async def test_town_path_success_reaches_recap_and_complete(auth_client, mint_token, monkeypatch):
     monkeypatch.setattr(guided_scenes, "ability_check", fixed_check(20))
     patch_combat(monkeypatch)
-    _path, host, player, state, act = await begin(auth_client, mint_token)
+    path, host, player, state, act = await begin(auth_client, mint_token)
     player_id = await _me(auth_client, player)
 
     # Cart check (Athletics), then continue to Mara.
@@ -104,8 +104,9 @@ async def test_town_path_success_reaches_recap_and_complete(auth_client, mint_to
             break
         fighters = state["encounter"]["fighters"]
         targets = [
-            k for k in state["encounter"]["order"] if fighters[k]["user_id"] is None
-            and fighters[k]["hp"] > 0
+            k
+            for k in state["encounter"]["order"]
+            if fighters[k]["user_id"] is None and fighters[k]["hp"] > 0
         ]
         state = await act(
             player, "combat_action", state["revision"], move="strike", target=targets[0]
@@ -120,6 +121,11 @@ async def test_town_path_success_reaches_recap_and_complete(auth_client, mint_to
     state = await act(host, "continue", state["revision"])
     assert state["phase"] == "complete"
     assert player_id in state["participants"]
+    # A finished introduction has no live play to pause.
+    r = await auth_client.post(
+        path + "/guided", headers=_auth(host), json=command("pause", state["revision"])
+    )
+    assert r.status_code == 409
 
 
 async def test_river_path_failure_continues_and_withdraw(auth_client, mint_token, monkeypatch):
