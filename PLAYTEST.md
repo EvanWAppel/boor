@@ -64,9 +64,15 @@ as …** to run it as one of the offered checks (the player who proposed becomes
 roller) or type a reason and **Send reply instead**. The proposed text stays in the log
 either way. Refresh mid-proposal: the open proposal is preserved.
 
+Any time after the host begins, either account (player or spectator) can click **Pause
+play**. A banner appears for both; every game button is disabled but chat still works.
+The pauser can optionally **Share note**. The other player cannot resume someone else's
+pause; the pauser or the host clicks **Resume play**. Pause mid-roll, refresh both
+tabs, and resume: the pending roll is still there.
+
 This is the expanded ~20-minute introduction: a rescue, a conversation, a branch-specific
 second check, and a real bounded fight, ending in a recap. It runs without AI calls.
-Pause/resume, movement, spellcasting, death saves, and inventory are next. The host can
+Movement, spellcasting, death saves, and inventory are next. The host can
 release a pending check if its player leaves.
 
 ## Human-DM acceptance pass

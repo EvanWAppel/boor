@@ -26,11 +26,12 @@ export interface GuidedState {
   actions?: GuidedAction[];
   recap?: { lines: string[]; next: string } | null;
   proposal?: { user_id: string; name: string; text: string } | null;
+  paused?: { user_id: string; name: string; note: string | null } | null;
 }
 export interface GuidedCommand {
   request_id: string;
   revision: number;
-  action: "start" | "select" | "approach" | "roll" | "cancel" | "continue" | "ready" | "unready" | "watch" | "join" | "exclude" | "begin" | "ask" | "choose" | "combat_action" | "stop_practice" | "skip_practice" | "propose" | "accept_proposal" | "decline_proposal";
+  action: "start" | "select" | "approach" | "roll" | "cancel" | "continue" | "ready" | "unready" | "watch" | "join" | "exclude" | "begin" | "ask" | "choose" | "combat_action" | "stop_practice" | "skip_practice" | "propose" | "accept_proposal" | "decline_proposal" | "pause" | "pause_note" | "resume";
   move?: "strike" | "dodge" | "withdraw";
   topic?: "road" | "river" | "mara";
   choice?: "town" | "river";
@@ -45,6 +46,17 @@ export interface GuidedCommand {
 const GUIDED_TYPES = new Set(["guided_cart_v1", "guided_cart_v2", "guided_cart_v3", "guided_cart_v4", "guided_cart_v5"]);
 export function isGuidedPayload(payload: Record<string, unknown>): boolean {
   return typeof payload.type === "string" && GUIDED_TYPES.has(payload.type);
+}
+
+// v5 pause: anyone seated pauses live play instantly; the pauser or the host resumes.
+export function pauseControls(
+  state: Pick<GuidedState, "version" | "scene" | "phase" | "seats" | "paused">, myId: string | null, isHost: boolean,
+): { canPause: boolean; canResume: boolean; canNote: boolean } {
+  const live = state.version >= 5 && !!state.scene && state.phase !== "complete";
+  const seated = !!myId && !!state.seats?.[myId];
+  const paused = state.paused ?? null;
+  const mine = !!paused && paused.user_id === myId;
+  return { canPause: live && seated && !paused, canResume: !!paused && (mine || isHost), canNote: mine };
 }
 
 // v5 check scenes (as opposed to the conversation, battle, and recap scenes).

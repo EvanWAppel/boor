@@ -168,3 +168,11 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
   now — the plan requires the text be preserved and the handoff explicit until real
   adjudication exists. Normal approaches are blocked while a proposal is open. Added
   directly to v5 (no new version) since v5 has no shipped/persisted runs yet.
+- **Pause/resume (landed on v5):** any seated participant (player or spectator) pauses
+  instantly with no vote; only the **pauser or the host** resumes. Chosen over "anyone
+  resumes" (one player could undo another's safety pause) and "host only" (the pauser
+  would have to ask). A pause freezes **game actions only** — chat stays open so the
+  table can talk about why — and the scene underneath (pending roll, open proposal,
+  combat turn) is held, not discarded. The reason is an **optional note added after**
+  the pause takes effect, never a precondition. v5 only; v1–v4 legacy runs untouched.
+  Older v5 states without a `paused` key read as unpaused, so no migration.

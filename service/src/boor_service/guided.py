@@ -98,6 +98,9 @@ class Command(BaseModel):
         "propose",
         "accept_proposal",
         "decline_proposal",
+        "pause",
+        "pause_note",
+        "resume",
     ]
     move: Literal["strike", "dodge", "withdraw"] | None = None
     topic: Literal["road", "river", "mara"] | None = None
@@ -110,7 +113,8 @@ class Command(BaseModel):
     approach: str | None = None
     # Combat target key (an enemy fighter id) for v5 encounters with more than one foe.
     target: str | None = None
-    # Free-form proposal text (v5 "try something else") or a host's decline reason.
+    # Free-form proposal text (v5 "try something else"), a host's decline reason,
+    # or the pauser's optional note.
     text: str | None = Field(default=None, max_length=500)
 
 
@@ -204,6 +208,7 @@ async def command_guided(
             goal=None,
             actions=[],
             proposal=None,
+            paused=None,
         )
         state = initial
         narration = (
