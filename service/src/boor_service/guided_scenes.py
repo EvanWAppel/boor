@@ -487,8 +487,13 @@ async def _apply_check(session, state: dict, body, user, is_host, members) -> st
         character = await session.get(Character, uuid.UUID(participants[uid]["character_id"]))
         if character is None or character.player_id != user.id:
             raise HTTPException(403, "You no longer control this character.")
-        state["proposal"] = {"user_id": uid, "name": character.name, "text": text}
-        return f"{character.name} proposes: “{text}” — waiting for the host to respond."
+        state["proposal"] = {
+            "id": str(body.request_id),
+            "user_id": uid,
+            "name": character.name,
+            "text": text,
+        }
+        return f"{character.name} proposes: “{text}” — waiting for a response."
     if body.action == "accept_proposal":
         if not is_host:
             raise HTTPException(403, "Only the host can respond to a proposal.")

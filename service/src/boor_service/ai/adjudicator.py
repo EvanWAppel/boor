@@ -73,6 +73,11 @@ class Adjudication:
     reason: str
 
 
+def _quoted(text: str) -> str:
+    """Keep player text from closing (or reopening) its own ``<proposal>`` quote."""
+    return text.replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _prompt(ctx: ProposalContext) -> str:
     offered = "\n".join(
         f'- id "{a["id"]}": {a["label"]} ({a["skill"]}; {a["hint"]})' for a in ctx.approaches
@@ -81,7 +86,7 @@ def _prompt(ctx: ProposalContext) -> str:
         f"Scene: {ctx.scene_title}\n{ctx.scene_intro}\nGoal: {ctx.goal}\n\n"
         f"Offered checks:\n{offered}\n\n"
         f"{ctx.character_name}'s player proposes (quoted player text):\n"
-        f"<proposal>{ctx.proposal}</proposal>"
+        f"<proposal>{_quoted(ctx.proposal)}</proposal>"
     )
 
 
@@ -118,7 +123,10 @@ def adjudicate(
         details = getattr(response, "stop_details", None)
         logger.warning("adjudication stopped: %s %s", response.stop_reason, details)
         raise AdjudicationError(f"model stopped with {response.stop_reason}")
-    text = next((b.text for b in response.content if getattr(b, "type", None) == "text"), None)
+    # With a server-side fallback, content before a ``fallback`` block is the declining
+    # model's partial output; the answer is the last text block.
+    texts = [b.text for b in response.content if getattr(b, "type", None) == "text"]
+    text = texts[-1] if texts else None
     if text is None:
         raise AdjudicationError("model returned no text")
     data = json.loads(text)

@@ -4,10 +4,12 @@ The model call runs as a background task after the proposal is saved. On any
 failure the proposal stays open for the host — nothing is silently resolved.
 """
 
+import uuid
+
 import anthropic
 import httpx
 
-from boor_service import guided_scenes
+from boor_service import guided_ai, guided_scenes
 from boor_service.ai.adjudicator import Adjudication, AdjudicationError
 from tests.test_guided import command
 from tests.test_guided_adventure import begin, fixed_check
@@ -122,3 +124,47 @@ async def test_ai_disabled_keeps_plain_host_handoff(auth_client, mint_token):
     _path, _host, player, state, act = await begin(auth_client, mint_token)
     proposed = await act(player, "propose", state["revision"], text="Anything")
     assert proposed["proposal"].get("ai") is None
+
+
+async def test_unexpected_errors_still_hand_back_to_host(
+    auth_client, mint_token, monkeypatch, fake_adjudicator
+):
+    # An error type nobody anticipated in the model call.
+    fake_adjudicator.result = AttributeError("odd response shape")
+    path, host, player, state, act = await begin(auth_client, mint_token)
+    await act(player, "propose", state["revision"], text="Idea one")
+    assert (await latest(auth_client, path, host))["proposal"]["ai"] == "unavailable"
+
+    # An error while applying the decision.
+    async def broken_accept(*_args, **_kwargs):
+        raise KeyError("boom")
+
+    monkeypatch.setattr(guided_scenes, "accept_proposal", broken_accept)
+    fake_adjudicator.result = Adjudication(approach="lift", reason="Fits.")
+    path, host, player, state, act = await begin(auth_client, mint_token)
+    await act(player, "propose", state["revision"], text="Idea two")
+    assert (await latest(auth_client, path, host))["proposal"]["ai"] == "unavailable"
+
+
+async def test_late_decision_never_lands_on_a_newer_identical_proposal(
+    auth_client, mint_token, session, fake_adjudicator
+):
+    path, host, player, state, act = await begin(auth_client, mint_token)
+    me = (await auth_client.get("/me", headers=_auth(player))).json()["id"]
+    session_id = uuid.UUID(path.split("/")[-1])
+
+    async def stale_run_finishes_now():
+        # A decision from an earlier proposal with the same author and text.
+        stale = {"id": "an-older-request", "user_id": me, "text": "Same idea"}
+        await guided_ai.apply_decision(
+            session, session_id, stale, Adjudication(approach="lift", reason="Fits.")
+        )
+
+    fake_adjudicator.before = stale_run_finishes_now
+    fake_adjudicator.result = AdjudicationError("this proposal's own run fails")
+    proposed = await act(player, "propose", state["revision"], text="Same idea")
+    final = await latest(auth_client, path, host)
+    # The stale decision was not applied; only this proposal's own (failed) run counted.
+    assert final["pending"] is None and final["phase"] == "ready"
+    assert final["proposal"]["id"] == proposed["proposal"]["id"]
+    assert final["proposal"]["ai"] == "unavailable"

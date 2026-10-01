@@ -25,7 +25,6 @@ from boor_service import guided, guided_scenes
 from boor_service.ai.adjudicator import (
     DEFAULT_MODEL,
     Adjudication,
-    AdjudicationError,
     ProposalContext,
     SupportsBetaMessages,
     adjudicate,
@@ -69,22 +68,30 @@ async def run(
     client: SupportsBetaMessages,
     snapshot: dict[str, Any],
 ) -> None:
-    """Background task: adjudicate the proposal in ``snapshot`` and record the outcome."""
-    decision: Adjudication | None
+    """Background task: adjudicate the proposal in ``snapshot`` and record the outcome.
+
+    Any failure ends with the proposal handed to the host. This is the outermost
+    frame of a background task, so errors are logged with tracebacks and turned into
+    visible table state rather than lost; a crash here would strand the proposal.
+    """
+    proposal = snapshot["proposal"]
+    decision: Adjudication | None = None
     try:
         decision = await decide(client, context_for(snapshot))
-    except (
-        TimeoutError,
-        anthropic.APIError,
-        AdjudicationError,
-        ValueError,
-        KeyError,
-        TypeError,
-    ) as exc:
-        logger.warning("AI adjudication failed for session %s: %r", session_id, exc)
-        decision = None
-    async with sessions() as db:
-        await apply_decision(db, session_id, snapshot["proposal"], decision)
+    except Exception:
+        logger.exception("AI adjudication failed for session %s", session_id)
+    finally:
+        close = getattr(client, "close", None)
+        if close is not None:
+            close()
+    try:
+        async with sessions() as db:
+            await apply_decision(db, session_id, proposal, decision)
+    except Exception:
+        logger.exception("applying the AI decision failed for session %s", session_id)
+        # Fresh session: hand the proposal to the host (no decision to apply).
+        async with sessions() as db:
+            await apply_decision(db, session_id, proposal, None)
 
 
 async def apply_decision(
@@ -105,7 +112,7 @@ async def apply_decision(
         state is None
         or not current
         or current.get("ai") != "thinking"
-        or (current["user_id"], current["text"]) != (proposal["user_id"], proposal["text"])
+        or current.get("id") != proposal.get("id")
     ):
         logger.info("AI adjudication discarded: the proposal was already answered")
         await db.commit()
