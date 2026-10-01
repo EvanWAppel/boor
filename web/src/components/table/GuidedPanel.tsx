@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ApiError, type ApiClient } from "@/lib/api";
-import { CHECK_SCENES, isGuidedPayload, type GuidedCommand, type GuidedState } from "@/lib/guided";
+import { CHECK_SCENES, isGuidedPayload, pauseControls, type GuidedCommand, type GuidedState } from "@/lib/guided";
 import { lobbyStatus } from "@/lib/lobby";
 import type { Character } from "@/lib/types";
 import type { LogEntry } from "@/lib/useRoom";
@@ -28,6 +28,7 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
   const [canRetry, setCanRetry] = useState(false);
   const [proposalText, setProposalText] = useState("");
   const [declineText, setDeclineText] = useState("");
+  const [noteText, setNoteText] = useState("");
   const latest = entries.findLast(e => e.kind === "narration" && !e.aiGenerated && isGuidedPayload(e.payload));
   const live = latest?.payload.state as GuidedState | undefined;
   const state = live && live.revision >= (snapshot?.revision ?? 0) ? live : snapshot;
@@ -38,7 +39,12 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
   const scene = state?.scene ?? null;
   const inCheckScene = v5 && !!scene && CHECK_SCENES.has(scene);
   const lobby = state ? lobbyStatus(state, myId, isHost) : null;
-  const disabled = busy || !connected || ended || (!loaded && !state) || !myId || canRetry;
+  // Pause controls stay usable while a failed action awaits retry: a pause must be instant.
+  // The revision check makes this safe — if the failed action did land, the pause gets a 409.
+  const controlsDisabled = busy || !connected || ended || (!loaded && !state) || !myId;
+  // A pause freezes game actions only; the pause controls themselves stay usable.
+  const disabled = controlsDisabled || canRetry || !!state?.paused;
+  const pause = state ? pauseControls(state, myId, isHost) : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -48,8 +54,8 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
     return () => { cancelled = true; };
   }, [api, sessionId, connected, reload]);
 
-  async function submit(command: GuidedCommand) {
-    if (busy) return;
+  async function submit(command: GuidedCommand): Promise<boolean> {
+    if (busy) return false;
     setBusy(true); setError(null); setCanRetry(false);
     retry.current = command;
     try {
@@ -57,16 +63,18 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
       setSnapshot(result.state);
       if (command.action === "select" || command.action === "watch") setChanging(false);
       retry.current = null;
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send your action.");
       if (e instanceof ApiError && e.status < 500) {
         retry.current = null;
         try { setSnapshot((await api.getGuided(sessionId)).state); } catch { /* retry on reconnect */ }
       } else { setCanRetry(true); }
+      return false;
     } finally { setBusy(false); }
   }
   function act(action: GuidedCommand["action"], extra: Partial<GuidedCommand> = {}) {
-    void submit({ request_id: crypto.randomUUID(), revision: state?.revision ?? 0, action, ...extra });
+    return submit({ request_id: crypto.randomUUID(), revision: state?.revision ?? 0, action, ...extra });
   }
 
   return <section className="max-h-[65dvh] shrink-0 space-y-4 overflow-y-auto border-b border-amber-900/50 bg-stone-950 p-5" aria-label="Guided adventure" aria-busy={busy}>
@@ -86,6 +94,19 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
         : <p className="text-sm text-amber-200">Your host can start the guided introduction here.</p>}
     </>}
     {state && <>
+      {!ended && state.paused && <div role="status" className="space-y-2 rounded-lg border border-sky-800/60 bg-sky-950/30 p-4">
+        <p className="text-sm font-medium text-sky-100">{state.paused.user_id === myId ? "You paused play." : `${state.paused.name} paused play.`} Game actions wait until play resumes; chat stays open.</p>
+        {state.paused.note && <p className="text-sm italic text-stone-200">“{state.paused.note}”</p>}
+        {pause?.canNote && <div className="space-y-2">
+          <label htmlFor="guided-pause-note" className="block text-xs text-stone-400">Optional: add a note for the table.</label>
+          <textarea id="guided-pause-note" className={textarea} rows={2} maxLength={500} value={noteText} disabled={controlsDisabled} onChange={e => setNoteText(e.target.value)} />
+          <button className={button} disabled={controlsDisabled || !noteText.trim()} onClick={() => { void act("pause_note", { text: noteText.trim() }).then(ok => { if (ok) setNoteText(""); }); }}>Share note</button>
+        </div>}
+        {pause?.canResume
+          ? <button className={button} disabled={controlsDisabled} onClick={() => act("resume")}>Resume play</button>
+          : <p className="text-xs text-stone-400">{state.paused.name} or the host can resume.</p>}
+      </div>}
+      {!ended && pause?.canPause && <button className="text-xs text-stone-400 underline disabled:opacity-40" disabled={controlsDisabled} onClick={() => act("pause")}>Pause play</button>}
       {!inLobby && v5 && scene && state.phase !== "complete" && <><p className="max-w-2xl text-sm leading-relaxed text-stone-300">{state.scene_intro}</p>
       {state.goal && <p className="text-sm font-medium text-amber-200">Goal: {state.goal}</p>}</>}
       {!inLobby && !v5 && !state.conversation && <><p className="max-w-2xl text-sm leading-relaxed text-stone-300">{state.intro}</p>

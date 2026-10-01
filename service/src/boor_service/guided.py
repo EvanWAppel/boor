@@ -98,6 +98,9 @@ class Command(BaseModel):
         "propose",
         "accept_proposal",
         "decline_proposal",
+        "pause",
+        "pause_note",
+        "resume",
     ]
     move: Literal["strike", "dodge", "withdraw"] | None = None
     topic: Literal["road", "river", "mara"] | None = None
@@ -110,7 +113,8 @@ class Command(BaseModel):
     approach: str | None = None
     # Combat target key (an enemy fighter id) for v5 encounters with more than one foe.
     target: str | None = None
-    # Free-form proposal text (v5 "try something else") or a host's decline reason.
+    # Free-form proposal text (v5 "try something else"), a host's decline reason,
+    # or the pauser's optional note.
     text: str | None = Field(default=None, max_length=500)
 
 
@@ -204,6 +208,7 @@ async def command_guided(
             goal=None,
             actions=[],
             proposal=None,
+            paused=None,
         )
         state = initial
         narration = (
@@ -329,6 +334,9 @@ async def command_guided(
         elif state["version"] >= 5:
             # v5 runs walk the data-driven scene graph; v1-v4 keep the branches below.
             narration = await guided_scenes.apply(session, state, body, user, is_host, members)
+        elif body.action in guided_scenes.V5_ONLY_ACTIONS:
+            # Never let a v5-only action fall through to the legacy "continue" branch.
+            raise HTTPException(409, "This action isn't available in this version of the intro.")
         elif body.action == "approach":
             if state["phase"] != "ready" or uid not in participants:
                 raise HTTPException(409, "Choose your character and wait for an open action.")

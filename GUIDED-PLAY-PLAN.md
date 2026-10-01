@@ -422,5 +422,11 @@ of the authored approaches** — the proposer becomes the roller — or **declin
 written reason**. The proposal text is never discarded and never falsely marked as
 understood/resolved; normal approaches are blocked while a proposal is open. This is
 the explicit human-host handoff the plan called for, ahead of true free-form
-adjudication. Still planned: pause/resume, proposals in non-check scenes, model-driven
+adjudication.
+
+**Pause/resume (landed on v5).** Any seated participant can pause live play instantly —
+no vote, no reason required. The pause freezes game actions only; chat stays open. The
+pauser may add an optional note afterwards. Only the pauser or the host can resume, so a
+safety pause can't be overridden by another player. Pending rolls, open proposals, and
+combat turns are held across the pause and a refresh. Still planned: proposals in non-check scenes, model-driven
 free-form adjudication, and a real two-account playtest of the full chapter (GUIDE-02).

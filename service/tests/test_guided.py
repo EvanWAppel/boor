@@ -163,3 +163,38 @@ async def test_simultaneous_commands_have_one_winner(auth_client, mint_token, se
     async with factory() as db:
         state = await guided.latest_state(db, game_id)
         assert state is not None and len(state["participants"]) == 1
+
+
+@pytest.mark.parametrize(
+    "action,extra",
+    [
+        ("pause", {}),
+        ("pause_note", {"text": "x"}),
+        ("resume", {}),
+        ("propose", {"text": "x"}),
+        ("accept_proposal", {"approach": "lift"}),
+        ("decline_proposal", {"text": "x"}),
+    ],
+)
+async def test_v5_only_actions_are_rejected_on_legacy_runs(auth_client, mint_token, action, extra):
+    path, dm, player = await setup(auth_client, mint_token)
+    await auth_client.post(path + "/guided", headers=_auth(dm), json=command("start", 0))
+    await auth_client.post(
+        path + "/guided", headers=_auth(player), json=command("select", 1, pregen="guardian")
+    )
+    await launch(auth_client, path, dm, player)
+    # Reach the outcome step, where a fall-through would wrongly "continue".
+    for token, step, extra2 in [(player, "approach", {"approach": "lift"}), (player, "roll", {})]:
+        rev = (await auth_client.get(path + "/guided", headers=_auth(dm))).json()["state"]
+        r = await auth_client.post(
+            path + "/guided", headers=_auth(token), json=command(step, rev["revision"], **extra2)
+        )
+        assert r.status_code == 200, r.text
+    before = (await auth_client.get(path + "/guided", headers=_auth(dm))).json()["state"]
+    assert before["phase"] == "outcome"
+    r = await auth_client.post(
+        path + "/guided", headers=_auth(dm), json=command(action, before["revision"], **extra)
+    )
+    assert r.status_code == 409, r.text
+    after = (await auth_client.get(path + "/guided", headers=_auth(dm))).json()["state"]
+    assert after["revision"] == before["revision"] and after["phase"] == "outcome"

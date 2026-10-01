@@ -16,6 +16,7 @@ fields the panels already read (``pending``, ``result``, ``conversation``,
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 
@@ -33,6 +34,8 @@ from boor_service.guided_story import (
     route_ending,
 )
 from boor_service.mechanics import ability_check
+
+logger = logging.getLogger(__name__)
 
 VERSION = 5
 
@@ -354,6 +357,12 @@ async def apply(
     session: AsyncSession, state: dict, body, user, is_host: bool, members: list
 ) -> str:
     """Apply a v5 content command, mutating ``state`` and returning narration."""
+    if body.action in PAUSE_ACTIONS:
+        return _apply_pause(state, body, user, is_host)
+    if state.get("paused"):
+        raise HTTPException(
+            409, f"Play is paused by {state['paused']['name']}. Chat is open; resume to continue."
+        )
     scene_id = state.get("scene")
     if scene_id in CHECK_SCENES:
         return await _apply_check(session, state, body, user, is_host, members)
@@ -364,6 +373,48 @@ async def apply(
     if scene_id == RECAP:
         return _apply_recap(state, body, is_host)
     raise HTTPException(409, "Finish the current step before continuing.")
+
+
+PAUSE_ACTIONS = {"pause", "pause_note", "resume"}
+V5_ONLY_ACTIONS = PAUSE_ACTIONS | {"propose", "accept_proposal", "decline_proposal"}
+
+
+def _apply_pause(state: dict, body, user, is_host: bool) -> str:
+    """Any participant pauses instantly; only the pauser or the host resumes.
+
+    The pause takes effect before any explanation is collected: the note is a
+    separate, optional follow-up from the pauser. The scene state underneath
+    (pending rolls, open proposals, combat turns) is held, not discarded.
+    """
+    uid = str(user.id)
+    paused = state.get("paused")
+    if body.action == "pause":
+        if uid not in state["seats"]:
+            raise HTTPException(403, "Only people at this table can pause play.")
+        if not state.get("scene") or state["phase"] == "complete":
+            raise HTTPException(409, "There is no play to pause right now.")
+        if paused:
+            raise HTTPException(409, f"Play is already paused by {paused['name']}.")
+        name = state["seats"][uid]["player_name"]
+        state["paused"] = {"user_id": uid, "name": name, "note": None}
+        logger.info("guided pause by %s at scene=%s phase=%s", uid, state["scene"], state["phase"])
+        return f"{name} paused play. Game actions wait until play resumes; chat stays open."
+    if not paused:
+        raise HTTPException(409, "Play is not paused.")
+    if body.action == "pause_note":
+        if paused["user_id"] != uid:
+            raise HTTPException(403, "Only the person who paused can add a note.")
+        note = (body.text or "").strip()
+        if not note:
+            raise HTTPException(422, "The note is empty. Write a few words, or skip the note.")
+        paused["note"] = note
+        return f"{paused['name']} added a note to the pause: “{note}”"
+    if paused["user_id"] != uid and not is_host:
+        raise HTTPException(403, f"Only {paused['name']} or the host can resume play.")
+    state["paused"] = None
+    logger.info("guided resume by %s (paused by %s)", uid, paused["user_id"])
+    resumer = state["seats"].get(uid, {}).get("player_name", "The host")
+    return f"{resumer} resumed play."
 
 
 async def _apply_check(session, state: dict, body, user, is_host, members) -> str:
