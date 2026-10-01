@@ -176,7 +176,7 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
   combat turn) is held, not discarded. The reason is an **optional note added after**
   the pause takes effect, never a precondition. v5 only; v1–v4 legacy runs untouched.
   Older v5 states without a `paused` key read as unpaused, so no migration.
-- **AI guide adjudicates proposals (v5, opt-in) — DRAFT, awaiting Evan's confirmation:**
+- **AI guide adjudicates proposals (v5, opt-in) — confirmed by Evan 2026-10-01:**
   - *Authority:* the AI decides immediately; the host can answer first and wins. Chosen
     over "AI suggests, host confirms" (needs a human host, which solo play lacks) and a
     per-session toggle (more UI for no current need).
@@ -193,3 +193,7 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
     (`fallbacks: "default"`); `ADJUDICATOR_MODEL` overrides.
   - *Labelling:* the decision is a normal guided-state event (the state reader ignores
     `ai_generated` rows) shown as "AI guide" with `ai_adjudicated: true` in its payload.
+  - *Cooldown:* at most one AI call per session every 10 seconds; a proposal inside the
+    window gets a 429 with the seconds remaining. The last-call time is persisted in the
+    guided state (survives restarts). Chosen over relying on the spend cap alone, since
+    one player could otherwise loop propose → decline as fast as the model answers.

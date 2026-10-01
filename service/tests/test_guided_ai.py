@@ -168,3 +168,26 @@ async def test_late_decision_never_lands_on_a_newer_identical_proposal(
     assert final["pending"] is None and final["phase"] == "ready"
     assert final["proposal"]["id"] == proposed["proposal"]["id"]
     assert final["proposal"]["ai"] == "unavailable"
+
+
+async def test_ai_calls_have_a_per_session_cooldown(
+    auth_client, mint_token, monkeypatch, fake_adjudicator
+):
+    clock = [1000.0]
+    monkeypatch.setattr(guided_ai, "now", lambda: clock[0])
+    fake_adjudicator.result = Adjudication(approach=None, reason="Not here.")
+    path, host, player, state, act = await begin(auth_client, mint_token)
+    declined = await act(player, "propose", state["revision"], text="One")
+    declined = await latest(auth_client, path, host)
+    clock[0] += 4
+    r = await auth_client.post(
+        path + "/guided",
+        headers=_auth(player),
+        json=command("propose", declined["revision"], text="Two"),
+    )
+    # Too soon: a clear retry message, nothing recorded, no model call.
+    assert r.status_code == 429 and "6 seconds" in r.json()["detail"]
+    assert len(fake_adjudicator.calls) == 1
+    clock[0] += 6
+    await act(player, "propose", declined["revision"], text="Two")
+    assert len(fake_adjudicator.calls) == 2

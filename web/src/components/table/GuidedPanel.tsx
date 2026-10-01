@@ -158,7 +158,7 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
         {v5 && <div className="space-y-2">
           <label htmlFor="guided-proposal" className="block text-xs text-stone-400">Something else in mind? Describe it and the host will decide how to handle it.</label>
           <textarea id="guided-proposal" className={textarea} rows={2} maxLength={500} value={proposalText} disabled={disabled} placeholder="e.g. I look for a plank to wedge under the wheel" onChange={e => setProposalText(e.target.value)} />
-          <button className={button} disabled={disabled || !proposalText.trim()} onClick={() => { act("propose", { text: proposalText.trim() }); setProposalText(""); }}>Try something else</button>
+          <button className={button} disabled={disabled || !proposalText.trim()} onClick={() => { void act("propose", { text: proposalText.trim() }).then(ok => { if (ok) setProposalText(""); }); }}>Try something else</button>
         </div>}
       </>}
       {v5 && state.phase === "ready" && state.proposal && <div className="space-y-2 rounded-lg border border-amber-800/60 bg-amber-950/20 p-4">

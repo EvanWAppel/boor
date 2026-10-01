@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
+import time
 import uuid
 from typing import Any, cast
 
@@ -34,6 +36,23 @@ from boor_service.db.models import GameSession, SessionStatus
 logger = logging.getLogger(__name__)
 
 LABEL = "AI guide"
+#: Minimum seconds between AI calls in one session (bounds model spend per table).
+COOLDOWN = 10
+
+
+def now() -> float:
+    return time.time()
+
+
+def cooldown_remaining(state: dict[str, Any]) -> int:
+    """Whole seconds until this session may call the AI guide again (0 = now).
+
+    The last-call time is stored in the persisted state, so it survives restarts.
+    """
+    last = state.get("ai_last_call")
+    if last is None:
+        return 0
+    return max(0, math.ceil(COOLDOWN - (now() - last)))
 
 
 def get_client() -> SupportsBetaMessages | None:

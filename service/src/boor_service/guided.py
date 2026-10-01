@@ -176,6 +176,8 @@ async def command_guided(
     if body.revision != (state["revision"] if state else 0):
         raise HTTPException(409, "The table has moved on. Review the current step and try again.")
     uid = str(user.id)
+    if body.action == "propose" and state and (wait := guided_ai.cooldown_remaining(state)):
+        raise HTTPException(429, f"The AI guide needs a moment. Try again in {wait} seconds.")
     if body.action == "start":
         if not is_host:
             raise HTTPException(403, "Only the host can start the tutorial.")
@@ -527,6 +529,7 @@ async def command_guided(
         ai_client = guided_ai.get_client()
         if ai_client is not None:
             state["proposal"]["ai"] = "thinking"
+            state["ai_last_call"] = guided_ai.now()
     await record_state(
         session,
         game_session,
