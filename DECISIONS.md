@@ -176,3 +176,20 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
   combat turn) is held, not discarded. The reason is an **optional note added after**
   the pause takes effect, never a precondition. v5 only; v1–v4 legacy runs untouched.
   Older v5 states without a `paused` key read as unpaused, so no migration.
+- **AI guide adjudicates proposals (v5, opt-in) — DRAFT, awaiting Evan's confirmation:**
+  - *Authority:* the AI decides immediately; the host can answer first and wins. Chosen
+    over "AI suggests, host confirms" (needs a human host, which solo play lacks) and a
+    per-session toggle (more UI for no current need).
+  - *Bounded output:* the model may only pick one of the scene's authored approaches or
+    decline with a reason (JSON-schema constrained, re-validated server-side). It never
+    sets outcomes, skills, or DCs; the rules engine still rolls.
+  - *Fallback:* on timeout, refusal, bad output, or a pause while it thinks, the proposal
+    stays open and is marked for the host. Rejected: auto-decline (would discard the
+    player's idea on our failure).
+  - *Execution:* a background task after the proposal is saved, so the proposer's client
+    is never blocked (they can still pause instantly); the result is applied under the
+    session lock only if that exact proposal is still open.
+  - *Model:* `claude-opus-5` at low effort with the server-side refusal fallback
+    (`fallbacks: "default"`); `ADJUDICATOR_MODEL` overrides.
+  - *Labelling:* the decision is a normal guided-state event (the state reader ignores
+    `ai_generated` rows) shown as "AI guide" with `ai_adjudicated: true` in its payload.

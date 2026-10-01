@@ -428,5 +428,13 @@ adjudication.
 no vote, no reason required. The pause freezes game actions only; chat stays open. The
 pauser may add an optional note afterwards. Only the pauser or the host can resume, so a
 safety pause can't be overridden by another player. Pending rolls, open proposals, and
-combat turns are held across the pause and a refresh. Still planned: proposals in non-check scenes, model-driven
+combat turns are held across the pause and a refresh.
+
+**AI guide for proposals (landed on v5, opt-in).** With `ENABLE_AI_ADJUDICATION=1` and
+a dedicated capped key, a saved proposal is handed to the model in a background task.
+The model may only run it as one of the scene's authored approaches (the proposer then
+rolls through the normal rules engine) or decline it with a short reason; it never
+invents outcomes, skills, or DCs. The result is labelled "AI guide". The host can answer
+first and their answer stands; if the AI fails, or play is paused while it thinks, the
+proposal is marked for the host. Proposals are never silently resolved. Still planned: proposals in non-check scenes, model-driven
 free-form adjudication, and a real two-account playtest of the full chapter (GUIDE-02).

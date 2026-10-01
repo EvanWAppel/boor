@@ -270,7 +270,7 @@ def test_practice_preserves_character_damage_defenses():
 async def test_competing_turn_commands_apply_only_once(auth_client, mint_token, session):
     import asyncio
 
-    from fastapi import HTTPException
+    from fastapi import BackgroundTasks, HTTPException
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from boor_service import guided
@@ -295,6 +295,8 @@ async def test_competing_turn_commands_apply_only_once(auth_client, mint_token, 
                     game,
                     user,
                     db,
+                    BackgroundTasks(),
+                    factory,
                 )
                 return 200
             except HTTPException as exc:

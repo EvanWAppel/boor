@@ -4,7 +4,7 @@ import asyncio
 import uuid
 
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from boor_service import guided, guided_scenes
@@ -111,7 +111,12 @@ async def test_two_players_cannot_commit_conflicting_destinations(auth_client, m
             assert game is not None and user is not None
             try:
                 await guided.command_guided(
-                    guided.Command(**command("choose", revision, choice=choice)), game, user, db
+                    guided.Command(**command("choose", revision, choice=choice)),
+                    game,
+                    user,
+                    db,
+                    BackgroundTasks(),
+                    factory,
                 )
                 return 200
             except HTTPException as e:

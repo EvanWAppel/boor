@@ -164,16 +164,18 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
       {v5 && state.phase === "ready" && state.proposal && <div className="space-y-2 rounded-lg border border-amber-800/60 bg-amber-950/20 p-4">
         <p className="text-sm text-amber-200">{state.proposal.name} wants to try something else:</p>
         <p className="text-sm italic text-stone-200">“{state.proposal.text}”</p>
+        {state.proposal.ai === "thinking" && <p role="status" className="text-sm text-sky-200">The AI guide is considering this idea. It can only run it as one of the offered actions or explain why not.</p>}
+        {state.proposal.ai === "unavailable" && <p role="status" className="text-sm text-stone-300">The AI guide couldn’t settle this one, so the host will respond.</p>}
         {!ended && isHost
           ? <div className="space-y-2">
-              <p className="text-xs text-stone-400">Run it as one of the offered actions, or reply with a reason if it isn’t possible here.</p>
+              <p className="text-xs text-stone-400">{state.proposal.ai === "thinking" ? "You can answer now instead of waiting; your answer takes precedence. " : ""}Run it as one of the offered actions, or reply with a reason if it isn’t possible here.</p>
               <div className="flex flex-wrap gap-2">
                 {(state.actions ?? []).map(a => <button key={a.id} className={button} disabled={disabled} onClick={() => act("accept_proposal", { approach: a.id })}>Run as {a.label}<br /><span className="text-xs text-stone-400">{a.hint}</span></button>)}
               </div>
               <textarea className={textarea} rows={2} maxLength={500} value={declineText} disabled={disabled} placeholder="Reply if this isn’t possible here" onChange={e => setDeclineText(e.target.value)} />
               <button className={button} disabled={disabled || !declineText.trim()} onClick={() => { act("decline_proposal", { text: declineText.trim() }); setDeclineText(""); }}>Send reply instead</button>
             </div>
-          : <p role="status" className="text-sm text-amber-200">{state.proposal.user_id === myId ? "Your idea is with the host." : "Waiting for the host to respond to the proposal."}</p>}
+          : <p role="status" className="text-sm text-amber-200">{state.proposal.user_id === myId ? (state.proposal.ai === "thinking" ? "Your idea is with the AI guide." : "Your idea is with the host.") : (state.proposal.ai === "thinking" ? "Waiting for the AI guide to respond to the proposal." : "Waiting for the host to respond to the proposal.")}</p>}
       </div>}
       {state.phase === "check" && state.pending && <>
         <h3 className="font-medium text-stone-100">{v5 ? "" : "3. "}{state.pending.name} takes the lead</h3>

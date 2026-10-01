@@ -133,7 +133,7 @@ async def test_reused_id_cannot_change_command(auth_client, mint_token):
 async def test_simultaneous_commands_have_one_winner(auth_client, mint_token, session):
     import asyncio
 
-    from fastapi import HTTPException
+    from fastapi import BackgroundTasks, HTTPException
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from boor_service.db.models import GameSession, User
@@ -152,7 +152,12 @@ async def test_simultaneous_commands_have_one_winner(auth_client, mint_token, se
             assert game is not None and user is not None
             try:
                 result = await guided.command_guided(
-                    guided.Command(**command("select", 1, pregen="guardian")), game, user, db
+                    guided.Command(**command("select", 1, pregen="guardian")),
+                    game,
+                    user,
+                    db,
+                    BackgroundTasks(),
+                    factory,
                 )
                 return result["state"]["revision"]
             except HTTPException as e:

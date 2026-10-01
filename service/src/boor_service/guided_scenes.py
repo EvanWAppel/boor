@@ -417,6 +417,61 @@ def _apply_pause(state: dict, body, user, is_host: bool) -> str:
     return f"{resumer} resumed play."
 
 
+async def accept_proposal(
+    session: AsyncSession, state: dict, approach_id: str | None, *, by: str
+) -> str:
+    """Run the open proposal as an authored approach; the proposer becomes the roller.
+
+    Shared by the host's "Run as" control and the AI guide. Raises before mutating.
+    """
+    scene = CHECK_SCENES[state["scene"]]
+    participants = state["participants"]
+    proposal = state.get("proposal")
+    if not proposal or state["phase"] != "ready":
+        raise HTTPException(409, "There is no proposal to accept right now.")
+    approach = next((a for a in scene.approaches if a.id == approach_id), None)
+    if approach is None:
+        raise HTTPException(422, "Choose which offered action best fits the proposal.")
+    proposer = proposal["user_id"]
+    if proposer not in participants:
+        raise HTTPException(409, "The player who proposed is no longer in the party.")
+    character = await session.get(Character, uuid.UUID(participants[proposer]["character_id"]))
+    if character is None or str(character.player_id) != proposer:
+        raise HTTPException(409, "That character is unavailable. Ask them to choose again.")
+    bonus = Sheet.from_sheet(character.sheet).skill_bonus(approach.skill)
+    state["pending"] = dict(
+        user_id=proposer,
+        character_id=str(character.id),
+        name=character.name,
+        approach=approach.id,
+        label=approach.label,
+        skill=approach.skill,
+        bonus=bonus,
+        dc=scene.dc,
+    )
+    state["phase"] = "check"
+    state["proposal"] = None
+    return (
+        f"{by} takes {character.name}'s idea (“{proposal['text']}”) as {approach.label}. "
+        f"Roll a twenty-sided die; the app adds {bonus:+}."
+    )
+
+
+def decline_proposal(state: dict, reason: str | None, *, by: str) -> str:
+    """Decline the open proposal with a written reason. Raises before mutating."""
+    proposal = state.get("proposal")
+    if not proposal or state["phase"] != "ready":
+        raise HTTPException(409, "There is no proposal to respond to right now.")
+    reason = (reason or "").strip()
+    if not reason:
+        raise HTTPException(422, "Give a short reason so the player knows what to do next.")
+    state["proposal"] = None
+    return (
+        f"{by} responds to {proposal['name']}'s idea (“{proposal['text']}”): {reason} "
+        "Choose one of the offered actions to continue."
+    )
+
+
 async def _apply_check(session, state: dict, body, user, is_host, members) -> str:
     scene = CHECK_SCENES[state["scene"]]
     uid = str(user.id)
@@ -437,49 +492,11 @@ async def _apply_check(session, state: dict, body, user, is_host, members) -> st
     if body.action == "accept_proposal":
         if not is_host:
             raise HTTPException(403, "Only the host can respond to a proposal.")
-        proposal = state.get("proposal")
-        if not proposal or state["phase"] != "ready":
-            raise HTTPException(409, "There is no proposal to accept right now.")
-        approach = next((a for a in scene.approaches if a.id == body.approach), None)
-        if approach is None:
-            raise HTTPException(422, "Choose which offered action best fits the proposal.")
-        proposer = proposal["user_id"]
-        if proposer not in participants:
-            raise HTTPException(409, "The player who proposed is no longer in the party.")
-        character = await session.get(Character, uuid.UUID(participants[proposer]["character_id"]))
-        if character is None or str(character.player_id) != proposer:
-            raise HTTPException(409, "That character is unavailable. Ask them to choose again.")
-        bonus = Sheet.from_sheet(character.sheet).skill_bonus(approach.skill)
-        state["pending"] = dict(
-            user_id=proposer,
-            character_id=str(character.id),
-            name=character.name,
-            approach=approach.id,
-            label=approach.label,
-            skill=approach.skill,
-            bonus=bonus,
-            dc=scene.dc,
-        )
-        state["phase"] = "check"
-        state["proposal"] = None
-        return (
-            f"The host takes {character.name}'s idea (“{proposal['text']}”) as {approach.label}. "
-            f"Roll a twenty-sided die; the app adds {bonus:+}."
-        )
+        return await accept_proposal(session, state, body.approach, by="The host")
     if body.action == "decline_proposal":
         if not is_host:
             raise HTTPException(403, "Only the host can respond to a proposal.")
-        proposal = state.get("proposal")
-        if not proposal or state["phase"] != "ready":
-            raise HTTPException(409, "There is no proposal to respond to right now.")
-        reason = (body.text or "").strip()
-        if not reason:
-            raise HTTPException(422, "Give a short reason so the player knows what to do next.")
-        state["proposal"] = None
-        return (
-            f"The host responds to {proposal['name']}'s idea (“{proposal['text']}”): {reason} "
-            "Choose one of the offered actions to continue."
-        )
+        return decline_proposal(state, body.text, by="The host")
     if body.action == "approach":
         if state["phase"] != "ready" or uid not in participants:
             raise HTTPException(409, "Choose your character and wait for an open action.")
