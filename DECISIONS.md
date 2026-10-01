@@ -160,4 +160,11 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
   rather than hidden difficulty numbers.
 - **No permanent loss / no campaign mutation:** the fight is encounter-scoped HP with
   authored non-lethal consequences for defeat/withdrawal, matching the intro's safety
-  scope. Custom approaches and pause/resume remain follow-up work.
+  scope. Pause/resume remains follow-up work.
+- **Custom "try something else" (host-adjudicated, landed on v5):** in a check scene a
+  playing character can submit a free-form proposal; the host maps it to an authored
+  approach (the proposer then rolls) or declines with a written reason. Chosen over
+  (a) silently dropping the text or (b) building model-driven free-form adjudication
+  now — the plan requires the text be preserved and the handoff explicit until real
+  adjudication exists. Normal approaches are blocked while a proposal is open. Added
+  directly to v5 (no new version) since v5 has no shipped/persisted runs yet.

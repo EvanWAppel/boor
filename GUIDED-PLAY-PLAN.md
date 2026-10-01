@@ -413,5 +413,14 @@ what the party did and where the next session begins.
 Decisions (see `DECISIONS.md`, 2026-09-27): two enemies with target selection (not a
 lone foe); the optional Mara sparring bout is dropped from v5 (the real fight now
 teaches combat) but its code stays for in-flight v4 runs; DCs remain visible for
-teaching. Custom "try something else" approaches and pause/resume remain planned, and
-a real two-account playtest of the full chapter (GUIDE-02) is the next validation step.
+teaching.
+
+**Custom "try something else" (landed on v5).** In a check scene a playing character
+can submit a free-form proposal instead of an offered action. The proposal is
+persisted and shown to everyone; the host (the runner) then either **maps it to one
+of the authored approaches** — the proposer becomes the roller — or **declines with a
+written reason**. The proposal text is never discarded and never falsely marked as
+understood/resolved; normal approaches are blocked while a proposal is open. This is
+the explicit human-host handoff the plan called for, ahead of true free-form
+adjudication. Still planned: pause/resume, proposals in non-check scenes, model-driven
+free-form adjudication, and a real two-account playtest of the full chapter (GUIDE-02).
