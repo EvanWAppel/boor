@@ -25,7 +25,8 @@ export interface GuidedState {
   goal?: string | null;
   actions?: GuidedAction[];
   recap?: { lines: string[]; next: string } | null;
-  proposal?: { user_id: string; name: string; text: string } | null;
+  // ai: "thinking" while the AI guide considers it; "unavailable" when the host must answer.
+  proposal?: { id?: string; user_id: string; name: string; text: string; ai?: "thinking" | "unavailable" | null } | null;
   paused?: { user_id: string; name: string; note: string | null } | null;
 }
 export interface GuidedCommand {

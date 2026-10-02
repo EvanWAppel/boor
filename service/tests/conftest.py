@@ -10,6 +10,8 @@ import random
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from contextlib import asynccontextmanager
+from typing import Any
 
 import httpx
 import jwt
@@ -22,12 +24,14 @@ from sqlalchemy import NullPool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.community.postgres import PostgresContainer
 
+from boor_service import guided_ai
+from boor_service.ai.adjudicator import Adjudication
 from boor_service.api import app
 from boor_service.auth.clerk import ClerkVerifier
 from boor_service.auth.dependencies import get_verifier
 from boor_service.db.base import Base
 from boor_service.db.models import User
-from boor_service.db.session import get_session
+from boor_service.db.session import get_session, get_sessionmaker
 
 #: Issuer the test Clerk verifier trusts (see the auth fixtures below).
 CLERK_ISSUER_TEST = "https://clerk.example.test"
@@ -59,9 +63,7 @@ async def session(_postgres_container: PostgresContainer) -> AsyncIterator[Async
     A per-test engine with ``NullPool`` sidesteps asyncpg's loop-bound pooling,
     and drop+create gives each test an isolated, empty database.
     """
-    engine = create_async_engine(
-        _postgres_container.get_connection_url(), poolclass=NullPool
-    )
+    engine = create_async_engine(_postgres_container.get_connection_url(), poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
@@ -207,7 +209,13 @@ async def auth_client(
     async def _session_override() -> AsyncIterator[AsyncSession]:
         yield session
 
+    @asynccontextmanager
+    async def _shared_session() -> AsyncIterator[AsyncSession]:
+        yield session
+
     app.dependency_overrides[get_session] = _session_override
+    # Background work (AI adjudication) opens its own session; in tests, share this one.
+    app.dependency_overrides[get_sessionmaker] = lambda: _shared_session
     app.dependency_overrides[get_verifier] = lambda: clerk_verifier
     transport = httpx.ASGITransport(app=app)
     try:
@@ -215,3 +223,31 @@ async def auth_client(
             yield client
     finally:
         app.dependency_overrides.clear()
+
+
+class FakeAdjudicator:
+    """Stands in for the model call. Set ``result`` to an Adjudication or an exception;
+    ``before`` is an optional coroutine run while the "model" is thinking (to race it)."""
+
+    def __init__(self) -> None:
+        self.result: Adjudication | Exception = Adjudication(approach="lift", reason="Fits.")
+        self.before: Callable[[], Awaitable[Any]] | None = None
+        self.calls: list[Any] = []
+
+
+@pytest.fixture
+def fake_adjudicator(monkeypatch: pytest.MonkeyPatch) -> FakeAdjudicator:
+    """Enable AI adjudication with a scripted decision (no network, no key)."""
+    fake = FakeAdjudicator()
+
+    async def _decide(_client: Any, ctx: Any) -> Adjudication:
+        fake.calls.append(ctx)
+        if fake.before:
+            await fake.before()
+        if isinstance(fake.result, Exception):
+            raise fake.result
+        return fake.result
+
+    monkeypatch.setattr(guided_ai, "get_client", lambda: object())
+    monkeypatch.setattr(guided_ai, "decide", _decide)
+    return fake

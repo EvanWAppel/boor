@@ -2,21 +2,22 @@
 
 The game-session row serializes commands, session ending, and event appends. A
 snapshot is accepted only from a server-authored narration event; chat payloads
-are never game state. No model or client-supplied dice values drive this flow.
+are never game state. No model or client-supplied dice values drive this flow; the
+optional AI guide (``guided_ai``) only chooses among authored approaches.
 """
 
 from __future__ import annotations
 
 import copy
 import uuid
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from boor_service import guided_combat, guided_scenes, realtime
+from boor_service import guided_ai, guided_combat, guided_scenes, realtime
 from boor_service.auth.dependencies import CurrentUser, GameSessionForMember, SessionDep
 from boor_service.character import Character as Sheet
 from boor_service.db import repository
@@ -28,6 +29,7 @@ from boor_service.db.models import (
     SessionEvent,
     SessionStatus,
 )
+from boor_service.db.session import get_sessionmaker
 from boor_service.guided_story import (
     CHOICES,
     QUESTIONS,
@@ -143,6 +145,8 @@ async def command_guided(
     game_session: GameSessionForMember,
     user: CurrentUser,
     session: SessionDep,
+    background: BackgroundTasks,
+    sessions: Annotated[async_sessionmaker, Depends(get_sessionmaker)],
 ) -> dict:
     await session.execute(
         select(GameSession.id).where(GameSession.id == game_session.id).with_for_update()
@@ -172,6 +176,8 @@ async def command_guided(
     if body.revision != (state["revision"] if state else 0):
         raise HTTPException(409, "The table has moved on. Review the current step and try again.")
     uid = str(user.id)
+    if body.action == "propose" and state and (wait := guided_ai.cooldown_remaining(state)):
+        raise HTTPException(429, f"The AI guide needs a moment. Try again in {wait} seconds.")
     if body.action == "start":
         if not is_host:
             raise HTTPException(403, "Only the host can start the tutorial.")
@@ -518,19 +524,60 @@ async def command_guided(
                 )
             else:
                 raise HTTPException(409, "Finish the current scene before continuing.")
+    ai_client = None
+    if body.action == "propose" and state["version"] >= 5 and state.get("proposal"):
+        ai_client = guided_ai.get_client()
+        if ai_client is not None:
+            state["proposal"]["ai"] = "thinking"
+            state["ai_last_call"] = guided_ai.now()
+    await record_state(
+        session,
+        game_session,
+        state,
+        narration,
+        actor=user,
+        label="Guide",
+        request_id=str(body.request_id),
+        command=body.model_dump(mode="json"),
+    )
+    if ai_client is not None:
+        # The model call runs after the response, outside this request's DB transaction.
+        background.add_task(
+            guided_ai.run, sessions, game_session.id, ai_client, copy.deepcopy(state)
+        )
+    return {"state": state}
+
+
+async def record_state(
+    session: AsyncSession,
+    game_session: GameSession,
+    state: dict[str, Any],
+    narration: str,
+    *,
+    actor: Any,
+    label: str,
+    request_id: str,
+    command: dict[str, Any],
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """Bump the revision, persist the snapshot as a narration event, commit, broadcast.
+
+    The caller must hold the game-session row lock.
+    """
     state["revision"] += 1
     event = await repository.append_event(
         session,
         game_session=game_session,
         kind=EventKind.narration,
-        actor=user,
-        actor_label="Guide",
+        actor=actor,
+        actor_label=label,
         body=narration,
         payload={
             "type": EVENT_TYPES[state["version"]],
             "state": state,
-            "request_id": str(body.request_id),
-            "command": body.model_dump(mode="json"),
+            "request_id": request_id,
+            "command": command,
+            **(extra or {}),
         },
     )
     await session.commit()
@@ -542,8 +589,7 @@ async def command_guided(
             "kind": "narration",
             "body": event.body,
             "payload": event.payload,
-            "display_name": "Guide",
+            "display_name": label,
             "audience": "table",
         },
     )
-    return {"state": state}

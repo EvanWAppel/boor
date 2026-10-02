@@ -120,6 +120,9 @@ re-apply the session-token customization (email/name claims) — see `CLERK-SETU
   2026-12-01 cutoff: https://docs.railway.com/infrastructure-as-code
 - Keep one service replica/process: WebSocket rooms and in-flight AI turn exclusion
   are process-local. A broker/distributed lock is required before scaling out.
+- The AI guide for v5 "try something else" proposals is opt-in: `ENABLE_AI_ADJUDICATION=1`
+  plus the same dedicated capped workspace key (`ADJUDICATOR_MODEL` optionally overrides
+  the default `claude-opus-5`). Without it, proposals go to the host as before.
 - AI execution is opt-in: `ENABLE_STANDINS=1` plus a dedicated capped workspace key;
   profile editing and human-DM play do not need the key. See `PLAYTEST.md`.
 - CLI snapshot deployments include code that may not yet be on `main`. Merge the
