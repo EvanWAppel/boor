@@ -80,18 +80,18 @@ function Entry({ entry }: { entry: LogEntry }) {
   }
 }
 
-export default function Log({ entries, bounded = false }: { entries: LogEntry[]; bounded?: boolean }) {
+export default function Log({ entries }: { entries: LogEntry[] }) {
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const log = logRef.current;
-    if (!log) return;
-    if (bounded) log.scrollTop = log.scrollHeight;
-    else log.lastElementChild?.scrollIntoView({ block: "end" });
-  }, [entries.length, bounded]);
+    // Scroll the log itself, never the page: on desktop the scene column beside it
+    // has its own scroll position that a new log line must not disturb.
+    if (log) log.scrollTop = log.scrollHeight;
+  }, [entries.length]);
 
   return (
-    <div ref={logRef} className={`flex-1 space-y-1.5 overflow-y-auto p-4 text-sm ${bounded ? "max-h-[32dvh] min-h-24" : ""}`}>
+    <div ref={logRef} className="max-h-[50dvh] min-h-24 flex-1 space-y-1.5 overflow-y-auto p-4 text-sm leading-relaxed lg:max-h-none">
       {entries.length === 0 ? (
         <p className="text-stone-500 italic">
           The table is quiet. Say something in character to begin.

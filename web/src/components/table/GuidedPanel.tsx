@@ -77,7 +77,7 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
     return submit({ request_id: crypto.randomUUID(), revision: state?.revision ?? 0, action, ...extra });
   }
 
-  return <section className="max-h-[65dvh] shrink-0 space-y-4 overflow-y-auto border-b border-amber-900/50 bg-stone-950 p-5" aria-label="Guided adventure" aria-busy={busy}>
+  return <section className="max-h-[65dvh] shrink-0 space-y-4 overflow-y-auto border-b border-amber-900/50 bg-stone-950 p-5 lg:max-h-none lg:overflow-visible" aria-label="Guided adventure" aria-busy={busy}>
     <div>
       <p className="text-xs uppercase tracking-widest text-amber-500">Learn by playing · {state && state.version >= 5 ? "20" : state && state.version < 3 ? "5" : state?.version === 3 ? "10" : "15"} minute introduction</p>
       <h2 className="mt-1 text-2xl font-semibold text-amber-100">{state && state.version >= 5 ? (state.scene_title ?? "The river-road rescue") : state?.encounter ? "Practice with Mara" : state?.conversation ? "A word with Mara" : "The river-road rescue"}</h2>

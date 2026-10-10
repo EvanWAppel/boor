@@ -197,3 +197,13 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
     window gets a 429 with the seconds remaining. The last-call time is persisted in the
     guided state (survives restarts). Chosen over relying on the spend cap alone, since
     one player could otherwise loop propose → decline as fast as the model answers.
+- **Table layout: act left, read right (GUIDE-LAYOUT) — drafted 2026-10-10, awaiting Evan's confirmation:**
+  - *Chosen:* on desktop, a centered, width-capped table with two independently
+    scrolling columns: the scene and tools on the left, the story log and composer on
+    the right. Comes from the first GUIDE-02 playtest (lines too long on a wide browser;
+    too much on screen at once).
+  - *Rejected:* the previous stacked layout (scene above a short log, tools sidebar), which
+    made the eyes jump between three places and ran lines edge to edge; a three-column
+    layout with a separate tools rail, which adds a third place to look.
+  - *Scope:* desktop browsers only; phone layout is deferred. Narrow windows fall back to
+    scene → log → tools in one column.
