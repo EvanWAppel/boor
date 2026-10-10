@@ -60,6 +60,7 @@ from boor_service.db.models import (
 from boor_service.dice import RollResult, roll, roll_d20
 
 logger = logging.getLogger(__name__)
+realtime.install_log_redaction()  # SEC-01: no session tokens in access logs
 
 app = FastAPI(
     title="boor rules service",
@@ -776,9 +777,10 @@ async def session_ws(
 ) -> None:
     """Join a game session's shared realtime room.
 
-    Authenticate with ``?token=<clerk-jwt>`` (browsers can't set WS headers). The
-    handshake verifies the token and campaign membership before joining the room;
-    see :mod:`boor_service.realtime`.
+    Authenticate by offering the subprotocols ``bearer, <clerk-jwt>`` (browsers
+    can't set WS headers; the legacy ``?token=`` still works, redacted from logs).
+    The handshake verifies the token and campaign membership before joining the
+    room; see :mod:`boor_service.realtime`.
     """
     await realtime.handle_connection(websocket, session_id, session, verifier, realtime.hub)
 
