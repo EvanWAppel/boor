@@ -68,7 +68,7 @@ def context_for(state: dict[str, Any]) -> ProposalContext:
         scene_title=state["scene_title"],
         scene_intro=state["scene_intro"],
         goal=state["goal"],
-        approaches=state["actions"],
+        approaches=guided_scenes.proposal_options(state),
         character_name=proposal["name"],
         proposal=proposal["text"],
     )

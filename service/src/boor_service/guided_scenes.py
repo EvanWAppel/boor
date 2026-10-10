@@ -364,6 +364,8 @@ async def apply(
             409, f"Play is paused by {state['paused']['name']}. Chat is open; resume to continue."
         )
     scene_id = state.get("scene")
+    if body.action in PROPOSAL_ACTIONS:
+        return await _apply_proposal(session, state, body, user, is_host)
     if scene_id in CHECK_SCENES:
         return await _apply_check(session, state, body, user, is_host, members)
     if scene_id == MARA:
@@ -376,7 +378,8 @@ async def apply(
 
 
 PAUSE_ACTIONS = {"pause", "pause_note", "resume"}
-V5_ONLY_ACTIONS = PAUSE_ACTIONS | {"propose", "accept_proposal", "decline_proposal"}
+PROPOSAL_ACTIONS = {"propose", "accept_proposal", "decline_proposal"}
+V5_ONLY_ACTIONS = PAUSE_ACTIONS | PROPOSAL_ACTIONS
 
 
 def _apply_pause(state: dict, body, user, is_host: bool) -> str:
@@ -417,50 +420,140 @@ def _apply_pause(state: dict, body, user, is_host: bool) -> str:
     return f"{resumer} resumed play."
 
 
+# --- "Try something else" proposals -------------------------------------------
+#
+# A playing character may propose a free-form idea instead of an offered action. The
+# host (or the AI guide) maps it onto one of the scene's authored options, or declines
+# it with a reason. Check scenes map to an approach (the proposer then rolls); the Mara
+# conversation maps only to a question not yet asked (the destination stays an explicit
+# choice); the fight maps the active character's idea to Strike <target>, Dodge, or
+# Withdraw, and a decline leaves the turn with them. Decided by Evan 2026-10-10.
+
+#: The phase in which each kind of scene accepts proposals.
+_PROPOSAL_PHASE = {MARA: "conversation", BATTLE: "combat"}
+
+_DODGE_HINT = "Attacks against you have disadvantage until your next turn"
+
+
+def proposal_options(state: dict) -> list[dict[str, str]]:
+    """The authored options an open proposal may be mapped onto, in display order."""
+    scene_id = state.get("scene")
+    if scene_id in CHECK_SCENES:
+        return [
+            {"id": a.id, "label": a.label, "skill": a.skill, "hint": a.hint}
+            for a in CHECK_SCENES[scene_id].approaches
+        ]
+    if scene_id == MARA:
+        asked = {answer["topic"] for answer in state["conversation"]["answers"]}
+        return [
+            {"id": topic, "label": f"Ask Mara: {question}", "hint": "A question; no roll"}
+            for topic, question in QUESTIONS.items()
+            if topic not in asked
+        ]
+    if scene_id == BATTLE and state.get("encounter"):
+        encounter = state["encounter"]
+        fighters = encounter["fighters"]
+        return [
+            {
+                "id": f"strike:{key}",
+                "label": f"Strike the {fighters[key]['name']}",
+                "hint": "An attack roll against its armor",
+            }
+            for key in guided_combat.enemy_targets(encounter)
+        ] + [
+            {"id": "dodge", "label": "Dodge", "hint": _DODGE_HINT},
+            {"id": "withdraw", "label": "Withdraw", "hint": "Leave the fight safely"},
+        ]
+    return []
+
+
+def _proposal_open_phase(state: dict) -> bool:
+    scene_id = state.get("scene")
+    expected = "ready" if scene_id in CHECK_SCENES else _PROPOSAL_PHASE.get(scene_id)
+    return expected is not None and state["phase"] == expected
+
+
+def _may_propose(state: dict, uid: str) -> bool:
+    if not _proposal_open_phase(state) or uid not in state["participants"]:
+        return False
+    if state["scene"] == BATTLE:
+        return guided_combat.current_actor(state["encounter"]) == uid
+    return bool(proposal_options(state))
+
+
+def _record_battle_outcome(state: dict) -> None:
+    encounter = state["encounter"]
+    if encounter["outcome"]:
+        state["phase"] = "combat_outcome"
+        state.setdefault("scenes", {})[BATTLE] = {"reason": encounter["outcome"]["reason"]}
+
+
 async def accept_proposal(
-    session: AsyncSession, state: dict, approach_id: str | None, *, by: str
+    session: AsyncSession, state: dict, option_id: str | None, *, by: str
 ) -> str:
-    """Run the open proposal as an authored approach; the proposer becomes the roller.
+    """Run the open proposal as one of the scene's authored options.
 
     Shared by the host's "Run as" control and the AI guide. Raises before mutating.
     """
-    scene = CHECK_SCENES[state["scene"]]
-    participants = state["participants"]
     proposal = state.get("proposal")
-    if not proposal or state["phase"] != "ready":
+    if not proposal or not _proposal_open_phase(state):
         raise HTTPException(409, "There is no proposal to accept right now.")
-    approach = next((a for a in scene.approaches if a.id == approach_id), None)
-    if approach is None:
+    option = next((o for o in proposal_options(state) if o["id"] == option_id), None)
+    if option is None:
         raise HTTPException(422, "Choose which offered action best fits the proposal.")
+    participants = state["participants"]
     proposer = proposal["user_id"]
     if proposer not in participants:
         raise HTTPException(409, "The player who proposed is no longer in the party.")
     character = await session.get(Character, uuid.UUID(participants[proposer]["character_id"]))
     if character is None or str(character.player_id) != proposer:
         raise HTTPException(409, "That character is unavailable. Ask them to choose again.")
-    bonus = Sheet.from_sheet(character.sheet).skill_bonus(approach.skill)
+    idea = f"{by} takes {character.name}'s idea (“{proposal['text']}”) as"
+    scene_id = state["scene"]
+    if scene_id == MARA:
+        reply = answer_question(option["id"], _cart_success(state))
+        question = QUESTIONS[option["id"]]
+        state["conversation"]["answers"].append(
+            dict(
+                topic=option["id"],
+                question=question,
+                reply=reply,
+                speaker=character.name,
+                user_id=proposer,
+            )
+        )
+        state["proposal"] = None
+        return f"{idea} a question: {question} Mara: {reply}"
+    if scene_id == BATTLE:
+        encounter = state["encounter"]
+        if guided_combat.current_actor(encounter) != proposer:
+            raise HTTPException(409, f"It is no longer {character.name}'s turn.")
+        move, _, target = option["id"].partition(":")
+        guided_combat.take_action(encounter, proposer, move, target=target or None)
+        state["proposal"] = None
+        _record_battle_outcome(state)
+        return f"{idea} {option['label']}. " + " ".join(encounter["messages"])
+    scene = CHECK_SCENES[scene_id]
+    bonus = Sheet.from_sheet(character.sheet).skill_bonus(option["skill"])
     state["pending"] = dict(
         user_id=proposer,
         character_id=str(character.id),
         name=character.name,
-        approach=approach.id,
-        label=approach.label,
-        skill=approach.skill,
+        approach=option["id"],
+        label=option["label"],
+        skill=option["skill"],
         bonus=bonus,
         dc=scene.dc,
     )
     state["phase"] = "check"
     state["proposal"] = None
-    return (
-        f"{by} takes {character.name}'s idea (“{proposal['text']}”) as {approach.label}. "
-        f"Roll a twenty-sided die; the app adds {bonus:+}."
-    )
+    return f"{idea} {option['label']}. Roll a twenty-sided die; the app adds {bonus:+}."
 
 
 def decline_proposal(state: dict, reason: str | None, *, by: str) -> str:
     """Decline the open proposal with a written reason. Raises before mutating."""
     proposal = state.get("proposal")
-    if not proposal or state["phase"] != "ready":
+    if not proposal or not _proposal_open_phase(state):
         raise HTTPException(409, "There is no proposal to respond to right now.")
     reason = (reason or "").strip()
     if not reason:
@@ -472,18 +565,22 @@ def decline_proposal(state: dict, reason: str | None, *, by: str) -> str:
     )
 
 
-async def _apply_check(session, state: dict, body, user, is_host, members) -> str:
-    scene = CHECK_SCENES[state["scene"]]
+async def _apply_proposal(session, state: dict, body, user, is_host: bool) -> str:
     uid = str(user.id)
-    participants = state["participants"]
     if body.action == "propose":
-        if state["phase"] != "ready" or uid not in participants:
-            raise HTTPException(409, "You can propose an action when it is time to choose one.")
+        if not _may_propose(state, uid):
+            raise HTTPException(
+                409,
+                "You can propose on your turn in a fight."
+                if state.get("scene") == BATTLE
+                else "You can propose an action when it is time to choose one.",
+            )
         if state.get("proposal"):
             raise HTTPException(409, "A proposal is already with the host. Wait for their reply.")
         text = (body.text or "").strip()
         if not text:
             raise HTTPException(422, "Describe what you want to try.")
+        participants = state["participants"]
         character = await session.get(Character, uuid.UUID(participants[uid]["character_id"]))
         if character is None or character.player_id != user.id:
             raise HTTPException(403, "You no longer control this character.")
@@ -494,19 +591,25 @@ async def _apply_check(session, state: dict, body, user, is_host, members) -> st
             "text": text,
         }
         return f"{character.name} proposes: “{text}” — waiting for a response."
+    if not is_host:
+        raise HTTPException(403, "Only the host can respond to a proposal.")
     if body.action == "accept_proposal":
-        if not is_host:
-            raise HTTPException(403, "Only the host can respond to a proposal.")
         return await accept_proposal(session, state, body.approach, by="The host")
-    if body.action == "decline_proposal":
-        if not is_host:
-            raise HTTPException(403, "Only the host can respond to a proposal.")
-        return decline_proposal(state, body.text, by="The host")
+    return decline_proposal(state, body.text, by="The host")
+
+
+_WAIT_FOR_PROPOSAL = "The host is responding to a proposal. Wait for their reply."
+
+
+async def _apply_check(session, state: dict, body, user, is_host, members) -> str:
+    scene = CHECK_SCENES[state["scene"]]
+    uid = str(user.id)
+    participants = state["participants"]
     if body.action == "approach":
         if state["phase"] != "ready" or uid not in participants:
             raise HTTPException(409, "Choose your character and wait for an open action.")
         if state.get("proposal"):
-            raise HTTPException(409, "The host is responding to a proposal. Wait for their reply.")
+            raise HTTPException(409, _WAIT_FOR_PROPOSAL)
         approach = next((a for a in scene.approaches if a.id == body.approach), None)
         if approach is None:
             raise HTTPException(422, "Choose one of the offered approaches.")
@@ -571,6 +674,8 @@ async def _apply_conversation(session, state: dict, body, user, is_host, members
     if body.action in {"ask", "choose"}:
         if state["phase"] != "conversation":
             raise HTTPException(409, "There is no conversation waiting for an action.")
+        if state.get("proposal"):
+            raise HTTPException(409, _WAIT_FOR_PROPOSAL)
         if uid not in participants:
             raise HTTPException(403, "Only a playing character can speak for the party.")
         character = await session.get(Character, uuid.UUID(participants[uid]["character_id"]))
@@ -624,11 +729,21 @@ async def _apply_battle(session, state: dict, body, user, is_host, members) -> s
     if body.action in {"combat_action", "stop_practice"}:
         if state["phase"] != "combat" or not encounter:
             raise HTTPException(409, "There is no active fight.")
+        unanswered = ""
         if body.action == "stop_practice":
             if not is_host:
                 raise HTTPException(403, "Only the host can stop the fight for everyone.")
             guided_combat.stop_encounter(encounter)
+            if proposal := state.get("proposal"):
+                # Never drop an idea silently: say it went unanswered.
+                unanswered = (
+                    f"{proposal['name']}'s idea (“{proposal['text']}”) goes unanswered "
+                    "because the fight has ended. "
+                )
+                state["proposal"] = None
         else:
+            if state.get("proposal"):
+                raise HTTPException(409, _WAIT_FOR_PROPOSAL)
             if body.move is None:
                 raise HTTPException(422, "Choose a combat action.")
             if guided_combat.current_actor(encounter) != uid:
@@ -643,10 +758,8 @@ async def _apply_battle(session, state: dict, body, user, is_host, members) -> s
                 guided_combat.take_action(encounter, uid, body.move, target=body.target)
             except ValueError as exc:
                 raise HTTPException(409, str(exc)) from exc
-        if encounter["outcome"]:
-            state["phase"] = "combat_outcome"
-            state.setdefault("scenes", {})[BATTLE] = {"reason": encounter["outcome"]["reason"]}
-        return " ".join(encounter["messages"])
+        _record_battle_outcome(state)
+        return unanswered + " ".join(encounter["messages"])
     if body.action == "continue":
         if not is_host:
             raise HTTPException(403, "The host continues after everyone has read the outcome.")
