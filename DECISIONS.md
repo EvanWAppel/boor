@@ -207,3 +207,7 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
     layout with a separate tools rail, which adds a third place to look.
   - *Scope:* desktop browsers only; phone layout is deferred. Narrow windows fall back to
     scene → log → tools in one column.
+  - *Accepted trade-off (from review):* below desktop width the visual order (scene →
+    log → tools) differs from the DOM/tab order (scene → tools → log), because the left
+    column must be one scroll container on desktop. Desktop order matches. Revisit with
+    the phone layout.

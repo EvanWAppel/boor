@@ -30,5 +30,6 @@ body {
 @media (min-width: 64rem) {
   body:has([data-table-app]) {
     height: 100dvh;
+    min-height: 0; /* override the layout's min-h-full so 100dvh wins (iPad/Safari toolbars) */
   }
 }
