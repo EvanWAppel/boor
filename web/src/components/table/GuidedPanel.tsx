@@ -9,6 +9,7 @@ import type { Character } from "@/lib/types";
 import type { LogEntry } from "@/lib/useRoom";
 import ConversationPanel from "./ConversationPanel";
 import CombatPanel from "./CombatPanel";
+import ProposalBox from "./ProposalBox";
 
 const button = "rounded-lg border border-amber-700/60 bg-amber-950/50 px-4 py-3 text-left text-sm text-amber-100 hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40";
 const textarea = "w-full max-w-2xl rounded-lg border border-stone-700 bg-stone-900/60 p-2 text-sm text-stone-100 placeholder:text-stone-500 disabled:opacity-40";
@@ -26,8 +27,6 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
   // Keep the same command on ambiguous network failure: retry must never roll twice.
   const retry = useRef<GuidedCommand | null>(null);
   const [canRetry, setCanRetry] = useState(false);
-  const [proposalText, setProposalText] = useState("");
-  const [declineText, setDeclineText] = useState("");
   const [noteText, setNoteText] = useState("");
   const latest = entries.findLast(e => e.kind === "narration" && !e.aiGenerated && isGuidedPayload(e.payload));
   const live = latest?.payload.state as GuidedState | undefined;
@@ -76,6 +75,9 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
   function act(action: GuidedCommand["action"], extra: Partial<GuidedCommand> = {}) {
     return submit({ request_id: crypto.randomUUID(), revision: state?.revision ?? 0, action, ...extra });
   }
+  const proposalBox = state && v5
+    ? <ProposalBox state={state} myId={myId} isHost={isHost} disabled={disabled} ended={ended} act={act} />
+    : null;
 
   return <section className="max-h-[65dvh] shrink-0 space-y-4 overflow-y-auto border-b border-amber-900/50 bg-stone-950 p-5 lg:max-h-none lg:overflow-visible" aria-label="Guided adventure" aria-busy={busy}>
     <div>
@@ -155,28 +157,8 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
               <button className={button} disabled={disabled} onClick={() => act("approach", { approach: "leverage" })}>Find a spot to use a branch as a lever<br /><span className="text-xs text-stone-400">Uses reasoning · Investigation</span></button>
             </>}
         </div>
-        {v5 && <div className="space-y-2">
-          <label htmlFor="guided-proposal" className="block text-xs text-stone-400">Something else in mind? Describe it and the host will decide how to handle it.</label>
-          <textarea id="guided-proposal" className={textarea} rows={2} maxLength={500} value={proposalText} disabled={disabled} placeholder="e.g. I look for a plank to wedge under the wheel" onChange={e => setProposalText(e.target.value)} />
-          <button className={button} disabled={disabled || !proposalText.trim()} onClick={() => { void act("propose", { text: proposalText.trim() }).then(ok => { if (ok) setProposalText(""); }); }}>Try something else</button>
-        </div>}
       </>}
-      {v5 && state.phase === "ready" && state.proposal && <div className="space-y-2 rounded-lg border border-amber-800/60 bg-amber-950/20 p-4">
-        <p className="text-sm text-amber-200">{state.proposal.name} wants to try something else:</p>
-        <p className="text-sm italic text-stone-200">“{state.proposal.text}”</p>
-        {state.proposal.ai === "thinking" && <p role="status" className="text-sm text-sky-200">The AI guide is considering this idea. It can only run it as one of the offered actions or explain why not.</p>}
-        {state.proposal.ai === "unavailable" && <p role="status" className="text-sm text-stone-300">The AI guide couldn’t settle this one, so the host will respond.</p>}
-        {!ended && isHost
-          ? <div className="space-y-2">
-              <p className="text-xs text-stone-400">{state.proposal.ai === "thinking" ? "You can answer now instead of waiting; your answer takes precedence. " : ""}Run it as one of the offered actions, or reply with a reason if it isn’t possible here.</p>
-              <div className="flex flex-wrap gap-2">
-                {(state.actions ?? []).map(a => <button key={a.id} className={button} disabled={disabled} onClick={() => act("accept_proposal", { approach: a.id })}>Run as {a.label}<br /><span className="text-xs text-stone-400">{a.hint}</span></button>)}
-              </div>
-              <textarea className={textarea} rows={2} maxLength={500} value={declineText} disabled={disabled} placeholder="Reply if this isn’t possible here" onChange={e => setDeclineText(e.target.value)} />
-              <button className={button} disabled={disabled || !declineText.trim()} onClick={() => { act("decline_proposal", { text: declineText.trim() }); setDeclineText(""); }}>Send reply instead</button>
-            </div>
-          : <p role="status" className="text-sm text-amber-200">{state.proposal.user_id === myId ? (state.proposal.ai === "thinking" ? "Your idea is with the AI guide." : "Your idea is with the host.") : (state.proposal.ai === "thinking" ? "Waiting for the AI guide to respond to the proposal." : "Waiting for the host to respond to the proposal.")}</p>}
-      </div>}
+      {inCheckScene && proposalBox}
       {state.phase === "check" && state.pending && <>
         <h3 className="font-medium text-stone-100">{v5 ? "" : "3. "}{state.pending.name} takes the lead</h3>
         <p className="text-sm text-stone-300">{state.pending.label}. A check answers whether an uncertain action works. Roll a twenty-sided die; your character adds {state.pending.bonus >= 0 ? "+" : ""}{state.pending.bonus}. A total of {state.pending.dc} or more succeeds.</p>
@@ -186,8 +168,8 @@ export default function GuidedPanel({ api, sessionId, campaignId, entries, chara
           : <p role="status" className="text-sm text-amber-200">Waiting for {state.pending.name}’s player to roll. You can cheer them on in chat.</p>)}
         {!ended && isHost && <button className="ml-3 text-xs text-stone-400 underline disabled:opacity-40" disabled={disabled} onClick={() => act("cancel")}>Release check so someone else can act</button>}
       </>}
-      {state.conversation && (v5 ? scene === "mara" : !state.encounter) && <ConversationPanel state={state} canPlay={Boolean(me)} isHost={isHost} disabled={disabled} ended={ended} act={act} />}
-      {state.encounter && (v5 ? scene === "battle" : true) && <CombatPanel state={state} myId={myId} isHost={isHost} disabled={disabled} ended={ended} act={act} />}
+      {state.conversation && (v5 ? scene === "mara" : !state.encounter) && <ConversationPanel state={state} canPlay={Boolean(me)} isHost={isHost} disabled={disabled} ended={ended} act={act} proposal={v5 && proposalBox} />}
+      {state.encounter && (v5 ? scene === "battle" : true) && <CombatPanel state={state} myId={myId} isHost={isHost} disabled={disabled} ended={ended} act={act} proposal={v5 && proposalBox} />}
       {state.result && (v5 ? inCheckScene : !state.conversation) && <div className="space-y-2 rounded-lg border border-emerald-900 bg-emerald-950/20 p-4" role="status">
         <p className="font-mono text-lg text-emerald-200">{state.result.die} {state.result.bonus >= 0 ? "+" : "−"} {Math.abs(state.result.bonus)} = {state.result.total} · target {state.result.dc}</p>
         <p className="text-sm text-stone-200">{state.result.outcome}</p>

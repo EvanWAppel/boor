@@ -211,3 +211,15 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
     log → tools) differs from the DOM/tab order (scene → tools → log), because the left
     column must be one scroll container on desktop. Desktop order matches. Revisit with
     the phone layout.
+- **"Try something else" in the conversation and the fight — confirmed by Evan 2026-10-10:**
+  - *Conversation:* an idea maps only to one of Mara's questions not yet asked. Rejected:
+    also mapping to the destination, because one player's free text could then lock in
+    the whole party's route. The destination stays an explicit button choice.
+  - *Fight:* only the character whose turn it is may propose; it maps to Strike (with a
+    target), Dodge, or Withdraw, or is declined and the turn stays with them. The turn
+    waits (enemies don't act) while it is open. Rejected: anyone proposing at any time,
+    queued for their turn (more state, less clear what happens when).
+  - *AI guide:* judges these too, under the check-scene rules (host can answer first and
+    wins; failures hand back to the host; same cooldown and spend cap). Rejected: host-only.
+  - *Stopping the fight* with an idea still open closes it with a visible "goes
+    unanswered" line in the log rather than dropping it.

@@ -22,10 +22,11 @@ MAX_REASON = 400
 
 SYSTEM = """\
 You adjudicate one player's proposal in a beginner-friendly tabletop roleplaying \
-introduction. The current scene offers a fixed set of checks. Decide whether the \
-player's idea is reasonably a version of one of those checks.
+introduction. The current scene offers a fixed set of actions (skill checks, \
+questions to ask, or combat moves). Decide whether the player's idea is reasonably \
+a version of one of those actions.
 
-- If it is, answer decision "run" with that check's id, and a one-sentence reason \
+- If it is, answer decision "run" with that action's id, and a one-sentence reason \
 the table will see (for example, why a plank counts as using a lever).
 - If it cannot work in this scene, needs powers or items the character does not \
 have, or would control another player's character, answer decision "decline" with \
@@ -80,11 +81,13 @@ def _quoted(text: str) -> str:
 
 def _prompt(ctx: ProposalContext) -> str:
     offered = "\n".join(
-        f'- id "{a["id"]}": {a["label"]} ({a["skill"]}; {a["hint"]})' for a in ctx.approaches
+        f'- id "{a["id"]}": {a["label"]} '
+        f"({'; '.join(d for d in (a.get('skill'), a.get('hint')) if d)})"
+        for a in ctx.approaches
     )
     return (
         f"Scene: {ctx.scene_title}\n{ctx.scene_intro}\nGoal: {ctx.goal}\n\n"
-        f"Offered checks:\n{offered}\n\n"
+        f"Offered actions:\n{offered}\n\n"
         f"{ctx.character_name}'s player proposes (quoted player text):\n"
         f"<proposal>{_quoted(ctx.proposal)}</proposal>"
     )

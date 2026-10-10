@@ -74,3 +74,49 @@ export interface PracticeEncounter {
   messages: string[];
   outcome: { reason: "victory" | "defeat" | "withdrawn" | "limit"; body: string } | null;
 }
+
+// v5 "try something else": the authored options an open proposal may be mapped onto.
+// Ids mirror boor_service.guided_scenes.proposal_options exactly (the server
+// re-validates). Check scenes: the offered approaches. Mara: only questions not yet
+// asked (the destination stays an explicit choice). Fight: strike a standing enemy,
+// dodge, or withdraw.
+export interface ProposalOption { id: string; label: string; hint: string }
+
+type ProposalView = Pick<GuidedState, "scene" | "actions" | "conversation" | "encounter">;
+
+export function proposalOptions(state: ProposalView): ProposalOption[] {
+  const scene = state.scene ?? "";
+  if (CHECK_SCENES.has(scene)) return (state.actions ?? []).map(({ id, label, hint }) => ({ id, label, hint }));
+  if (scene === "mara" && state.conversation) {
+    const asked = new Set(state.conversation.answers.map(a => a.topic));
+    return state.conversation.questions.filter(q => !asked.has(q.id))
+      .map(q => ({ id: q.id, label: `Ask Mara: ${q.label}`, hint: "A question; no roll" }));
+  }
+  if (scene === "battle" && state.encounter) {
+    const { order, fighters } = state.encounter;
+    const standing = order.filter(id => fighters[id].user_id === null && fighters[id].hp > 0 && !fighters[id].withdrawn);
+    return [
+      ...standing.map(id => ({ id: `strike:${id}`, label: `Strike the ${fighters[id].name}`, hint: "An attack roll against its armor" })),
+      { id: "dodge", label: "Dodge", hint: "Attacks against you have disadvantage until your next turn" },
+      { id: "withdraw", label: "Withdraw", hint: "Leave the fight safely" },
+    ];
+  }
+  return [];
+}
+
+const PROPOSAL_PHASE: Record<string, GuidedState["phase"]> = { mara: "conversation", battle: "combat" };
+
+/** Whether this person may submit a proposal right now (mirrors the server's guard). */
+export function canPropose(
+  state: ProposalView & Pick<GuidedState, "version" | "phase" | "participants" | "proposal">, myId: string | null,
+): boolean {
+  const scene = state.scene ?? "";
+  if (state.version < 5 || !myId || !state.participants[myId] || state.proposal) return false;
+  const phase = CHECK_SCENES.has(scene) ? "ready" : PROPOSAL_PHASE[scene];
+  if (!phase || state.phase !== phase) return false;
+  if (scene === "battle") {
+    const e = state.encounter;
+    return !!e && !e.outcome && e.order[e.index] === myId;
+  }
+  return proposalOptions(state).length > 0;
+}

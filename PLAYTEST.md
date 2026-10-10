@@ -64,6 +64,16 @@ as …** to run it as one of the offered checks (the player who proposed becomes
 roller) or type a reason and **Send reply instead**. The proposed text stays in the log
 either way. Refresh mid-proposal: the open proposal is preserved.
 
+The same box now appears in the **conversation with Mara** and in the **fight**:
+- With Mara, an idea can only become one of her questions you haven't asked yet (e.g.
+  "What's in the crates?" → *Why is this delivery important to you?*). The party's
+  destination is never chosen through a proposal. Once every question is asked, the box
+  disappears.
+- In the fight, only the character whose turn it is sees the box. Try "I duck behind the
+  cart" (→ Dodge) and "I summon a dragon" (→ declined; it's still your turn). While the
+  idea is open, nobody acts, the enemies included. As the host, stop the fight while an
+  idea is open: the log should say the idea went unanswered.
+
 Any time after the host begins, either account (player or spectator) can click **Pause
 play**. A banner appears for both; every game button is disabled but chat still works.
 The pauser can optionally **Share note**. The other player cannot resume someone else's

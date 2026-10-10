@@ -1,14 +1,19 @@
+import type { ReactNode } from "react";
 import type { GuidedCommand, GuidedState } from "@/lib/guided";
 
 const button = "rounded-lg border border-amber-700/60 bg-amber-950/50 px-4 py-3 text-left text-sm text-amber-100 hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40";
 
-export default function ConversationPanel({ state, canPlay, isHost, disabled, ended, act }: {
+export default function ConversationPanel({ state, canPlay, isHost, disabled, ended, act, proposal }: {
   state: GuidedState; canPlay: boolean; isHost: boolean; disabled: boolean; ended: boolean;
   act: (action: GuidedCommand["action"], extra?: Partial<GuidedCommand>) => void;
+  /** The "try something else" box (v5), shown under Mara's questions. */
+  proposal?: ReactNode;
 }) {
   const conversation = state.conversation;
   if (!conversation) return null;
   const answered = new Set(conversation.answers.map(a => a.topic));
+  // An open proposal holds the conversation until the host (or AI guide) answers it.
+  const blocked = disabled || !!state.proposal;
   return <div className="space-y-4" aria-label="Conversation with Mara">
     <p className="max-w-2xl text-sm leading-relaxed text-stone-300">{conversation.intro}</p>
     {state.phase === "conversation" && <>
@@ -16,10 +21,11 @@ export default function ConversationPanel({ state, canPlay, isHost, disabled, en
       <p className="text-sm text-stone-400">Mara is happy to help. You don’t need to roll to ask a friendly person a question. Any playing character can speak; everyone shares what you learn.</p>
       {!ended && canPlay && <div className="flex flex-wrap gap-2" aria-label="Questions for Mara">
         {conversation.questions.map(q => <button key={q.id} className={button}
-          disabled={disabled || answered.has(q.id)} onClick={() => act("ask", { topic: q.id })}>
+          disabled={blocked || answered.has(q.id)} onClick={() => act("ask", { topic: q.id })}>
           {q.label}{answered.has(q.id) ? " · Asked" : ""}
         </button>)}
       </div>}
+      {proposal}
       {!ended && !canPlay && <p role="status" className="text-sm text-amber-200">You’re watching. The playing characters can ask Mara questions and choose the party’s next stop.</p>}
     </>}
     <div className="space-y-3" aria-live="polite" aria-relevant="additions">
@@ -32,7 +38,7 @@ export default function ConversationPanel({ state, canPlay, isHost, disabled, en
       <h3 className="font-medium text-stone-100">Where will your party go next?</h3>
       <p className="text-sm text-stone-400">Ask more questions if you like, then agree in chat. One player chooses for the whole party. Once chosen, your destination is set.</p>
       <div className="flex flex-wrap gap-2">
-        {conversation.choices.map(c => <button key={c.id} className={button} disabled={disabled}
+        {conversation.choices.map(c => <button key={c.id} className={button} disabled={blocked}
           onClick={() => act("choose", { choice: c.id })}>{c.label}</button>)}
       </div>
     </div>}

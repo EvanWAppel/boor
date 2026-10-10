@@ -1,10 +1,13 @@
+import type { ReactNode } from "react";
 import type { GuidedCommand, GuidedState } from "@/lib/guided";
 
 const button = "rounded-lg border border-amber-700/60 bg-amber-950/50 px-4 py-3 text-left text-sm text-amber-100 hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40";
 
-export default function CombatPanel({ state, myId, isHost, disabled, ended, act }: {
+export default function CombatPanel({ state, myId, isHost, disabled, ended, act, proposal }: {
   state: GuidedState; myId: string | null; isHost: boolean; disabled: boolean; ended: boolean;
   act: (action: GuidedCommand["action"], extra?: Partial<GuidedCommand>) => void;
+  /** The "try something else" box (v5): the active character's idea for their turn. */
+  proposal?: ReactNode;
 }) {
   const encounter = state.encounter;
   if (!encounter) return null;
@@ -12,6 +15,8 @@ export default function CombatPanel({ state, myId, isHost, disabled, ended, act 
   const hpNoun = v5 ? "HP" : "practice HP";
   const active = encounter.outcome ? null : encounter.order[encounter.index];
   const mine = myId ? encounter.fighters[myId] : null;
+  // An open proposal holds the turn until the host (or AI guide) answers it.
+  const blocked = disabled || !!state.proposal;
   const enemies = encounter.order.filter(id => encounter.fighters[id].user_id === null && encounter.fighters[id].hp > 0);
   return <section className="space-y-4" aria-label={v5 ? "Encounter" : "Practice encounter"}>
     <p className="text-sm leading-relaxed text-stone-300">{encounter.intro}</p>
@@ -32,11 +37,12 @@ export default function CombatPanel({ state, myId, isHost, disabled, ended, act 
         <h3 className="font-medium text-amber-200">Your turn: {mine.name}</h3>
         <p className="text-sm text-stone-300">An attack rolls a twenty-sided die and applies your attack bonus. Meet the target’s armor class to hit, then roll damage. Your attack bonus is {mine.bonus >= 0 ? "+" : ""}{mine.bonus}; damage {mine.damage}. The app does the math.</p>
         <div className="flex flex-wrap gap-2">
-          {enemies.map(id => <button key={id} className={button} disabled={disabled} onClick={() => act("combat_action", { move: "strike", target: id })}>Strike {encounter.fighters[id].name}<br /><span className="text-xs text-stone-400">Attack bonus {mine.bonus >= 0 ? "+" : ""}{mine.bonus} · damage {mine.damage}</span></button>)}
-          <button className={button} disabled={disabled} onClick={() => act("combat_action", { move: "dodge" })}>Dodge<br /><span className="text-xs text-stone-400">Attacks against you keep the lower of two dice until your next turn</span></button>
-          <button className={button} disabled={disabled} onClick={() => act("combat_action", { move: "withdraw" })}>{v5 ? "Withdraw" : "Withdraw from practice"}<br /><span className="text-xs text-stone-400">Leave safely; your companions can keep {v5 ? "fighting" : "playing"}</span></button>
+          {enemies.map(id => <button key={id} className={button} disabled={blocked} onClick={() => act("combat_action", { move: "strike", target: id })}>Strike {encounter.fighters[id].name}<br /><span className="text-xs text-stone-400">Attack bonus {mine.bonus >= 0 ? "+" : ""}{mine.bonus} · damage {mine.damage}</span></button>)}
+          <button className={button} disabled={blocked} onClick={() => act("combat_action", { move: "dodge" })}>Dodge<br /><span className="text-xs text-stone-400">Attacks against you keep the lower of two dice until your next turn</span></button>
+          <button className={button} disabled={blocked} onClick={() => act("combat_action", { move: "withdraw" })}>{v5 ? "Withdraw" : "Withdraw from practice"}<br /><span className="text-xs text-stone-400">Leave safely; your companions can keep {v5 ? "fighting" : "playing"}</span></button>
         </div>
-      </> : <p role="status" className="text-sm text-amber-200">Waiting for {active ? encounter.fighters[active].name : "the next turn"}. {mine?.withdrawn || mine?.hp === 0 ? `You’re sitting out this ${v5 ? "fight" : "bout"}.` : "You can follow the action and talk in chat."}</p>}
+      </> : !state.proposal && <p role="status" className="text-sm text-amber-200">Waiting for {active ? encounter.fighters[active].name : "the next turn"}. {mine?.withdrawn || mine?.hp === 0 ? `You’re sitting out this ${v5 ? "fight" : "bout"}.` : "You can follow the action and talk in chat."}</p>}
+      {proposal}
       {isHost && <button className="text-xs text-stone-400 underline disabled:opacity-40" disabled={disabled} onClick={() => act("stop_practice")}>{v5 ? "Stop the fight for everyone" : "Stop practice for everyone"}</button>}
     </>}
     <div className="space-y-2 text-sm text-stone-200" aria-live="polite">
