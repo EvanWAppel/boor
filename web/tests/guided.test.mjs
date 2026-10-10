@@ -49,6 +49,9 @@ test('proposalOptions: approaches, unasked questions, or moves for the active fi
     fighters: { p1: f('Rowan', 'p1'), b1: f('Bandit', null), b2: f('Down', null, 0), b3: f('Cloak', null) } };
   assert.deepEqual(proposalOptions({ scene: 'battle', encounter }).map(o => o.id),
     ['strike:b1', 'strike:b3', 'dodge', 'withdraw']);
+  // A withdrawn enemy is no longer a target (server: guided_combat._active).
+  const withdrawn = { ...encounter, fighters: { ...encounter.fighters, b3: f('Cloak', null, 5, true) } };
+  assert.deepEqual(proposalOptions({ scene: 'battle', encounter: withdrawn }).map(o => o.id), ['strike:b1', 'dodge', 'withdraw']);
   assert.deepEqual(proposalOptions({ scene: 'recap' }), []);
 });
 

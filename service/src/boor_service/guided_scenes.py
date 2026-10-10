@@ -16,6 +16,7 @@ fields the panels already read (``pending``, ``result``, ``conversation``,
 
 from __future__ import annotations
 
+import copy
 import logging
 import uuid
 from dataclasses import dataclass
@@ -489,11 +490,12 @@ def _record_battle_outcome(state: dict) -> None:
 
 
 async def accept_proposal(
-    session: AsyncSession, state: dict, option_id: str | None, *, by: str
+    session: AsyncSession, state: dict, option_id: str | None, *, by: str, why: str | None = None
 ) -> str:
     """Run the open proposal as one of the scene's authored options.
 
-    Shared by the host's "Run as" control and the AI guide. Raises before mutating.
+    Shared by the host's "Run as" control and the AI guide (whose ``why`` is placed
+    right after the mapping, before any dice or enemy turns). Raises before mutating.
     """
     proposal = state.get("proposal")
     if not proposal or not _proposal_open_phase(state):
@@ -509,6 +511,7 @@ async def accept_proposal(
     if character is None or str(character.player_id) != proposer:
         raise HTTPException(409, "That character is unavailable. Ask them to choose again.")
     idea = f"{by} takes {character.name}'s idea (“{proposal['text']}”) as"
+    because = f" {why.strip()}" if why and why.strip() else ""
     scene_id = state["scene"]
     if scene_id == MARA:
         reply = answer_question(option["id"], _cart_success(state))
@@ -523,16 +526,23 @@ async def accept_proposal(
             )
         )
         state["proposal"] = None
-        return f"{idea} a question: {question} Mara: {reply}"
+        return f"{idea} a question: {question}{because} Mara: {reply}"
     if scene_id == BATTLE:
         encounter = state["encounter"]
         if guided_combat.current_actor(encounter) != proposer:
             raise HTTPException(409, f"It is no longer {character.name}'s turn.")
         move, _, target = option["id"].partition(":")
-        guided_combat.take_action(encounter, proposer, move, target=target or None)
+        # take_action clears messages before validating; work on a copy so a
+        # rejection leaves the open proposal and the fight untouched.
+        encounter = copy.deepcopy(encounter)
+        try:
+            guided_combat.take_action(encounter, proposer, move, target=target or None)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        state["encounter"] = encounter
         state["proposal"] = None
         _record_battle_outcome(state)
-        return f"{idea} {option['label']}. " + " ".join(encounter["messages"])
+        return f"{idea} {option['label']}.{because} " + " ".join(encounter["messages"])
     scene = CHECK_SCENES[scene_id]
     bonus = Sheet.from_sheet(character.sheet).skill_bonus(option["skill"])
     state["pending"] = dict(
@@ -547,7 +557,7 @@ async def accept_proposal(
     )
     state["phase"] = "check"
     state["proposal"] = None
-    return f"{idea} {option['label']}. Roll a twenty-sided die; the app adds {bonus:+}."
+    return f"{idea} {option['label']}.{because} Roll a twenty-sided die; the app adds {bonus:+}."
 
 
 def decline_proposal(state: dict, reason: str | None, *, by: str) -> str:
@@ -559,9 +569,14 @@ def decline_proposal(state: dict, reason: str | None, *, by: str) -> str:
     if not reason:
         raise HTTPException(422, "Give a short reason so the player knows what to do next.")
     state["proposal"] = None
+    if state["scene"] == MARA:
+        next_step = "Ask Mara one of the offered questions, or choose where to go next."
+    elif state["scene"] == BATTLE:
+        next_step = f"It is still {proposal['name']}'s turn."
+    else:
+        next_step = "Choose one of the offered actions to continue."
     return (
-        f"{by} responds to {proposal['name']}'s idea (“{proposal['text']}”): {reason} "
-        "Choose one of the offered actions to continue."
+        f"{by} responds to {proposal['name']}'s idea (“{proposal['text']}”): {reason} {next_step}"
     )
 
 

@@ -141,9 +141,8 @@ async def apply_decision(
         try:
             if decision.approach:
                 narration = await guided_scenes.accept_proposal(
-                    db, state, decision.approach, by="The AI guide"
+                    db, state, decision.approach, by="The AI guide", why=decision.reason
                 )
-                narration = f"{narration} {decision.reason}"
             else:
                 narration = guided_scenes.decline_proposal(
                     state, decision.reason, by="The AI guide"

@@ -24,10 +24,9 @@ export default function ProposalBox({ state, myId, isHost, disabled, ended, act 
   const [declineText, setDeclineText] = useState("");
   const proposal = state.proposal;
   const scene = state.scene ?? "";
-  if (ended) return null;
 
   if (!proposal) {
-    if (!canPropose(state, myId)) return null;
+    if (ended || !canPropose(state, myId)) return null;
     return <div className="space-y-2">
       <label htmlFor="guided-proposal" className="block text-xs text-stone-400">
         Something else in mind? Describe it and the host will decide how to handle it.
@@ -46,7 +45,7 @@ export default function ProposalBox({ state, myId, isHost, disabled, ended, act 
     <p className="text-sm italic text-stone-200">“{proposal.text}”</p>
     {proposal.ai === "thinking" && <p role="status" className="text-sm text-sky-200">The AI guide is considering this idea. It can only run it as one of the offered actions or explain why not.</p>}
     {proposal.ai === "unavailable" && <p role="status" className="text-sm text-stone-300">The AI guide couldn’t settle this one, so the host will respond.</p>}
-    {isHost
+    {ended ? null : isHost
       ? <div className="space-y-2">
           <p className="text-xs text-stone-400">{proposal.ai === "thinking" ? "You can answer now instead of waiting; your answer takes precedence. " : ""}Run it as one of the offered actions, or reply with a reason if it isn’t possible here.</p>
           <div className="flex flex-wrap gap-2">

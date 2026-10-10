@@ -83,7 +83,7 @@ async def test_conversation_proposal_cannot_reask_and_decline_reopens(
 async def test_no_conversation_proposal_once_every_question_is_asked(
     auth_client, mint_token, monkeypatch
 ):
-    path, host, player, state, act = await _to_mara(auth_client, mint_token, monkeypatch)
+    path, _host, player, state, act = await _to_mara(auth_client, mint_token, monkeypatch)
     for topic in ("road", "river", "mara"):
         state = await act(player, "ask", state["revision"], topic=topic)
     assert (
@@ -126,6 +126,8 @@ async def test_declined_fight_proposal_keeps_the_turn(auth_client, mint_token, m
         host, "decline_proposal", proposed["revision"], text="No dragons; try Strike or Dodge."
     )
     assert declined["proposal"] is None
+    log = (await auth_client.get(path + "/log", headers=_auth(host))).json()
+    assert "still" in log[-1]["body"] and "turn" in log[-1]["body"]
     encounter = declined["encounter"]
     assert encounter["order"][encounter["index"]] == me
     await act(player, "combat_action", declined["revision"], move="dodge")
@@ -180,4 +182,7 @@ async def test_ai_guide_maps_a_fight_idea_to_a_move(
     resolved = await latest(auth_client, path, host)
     assert resolved["proposal"] is None
     event = await last_guide_event(auth_client, path, host)
-    assert "as Dodge" in event["body"] and "dodges" in event["body"]
+    body = event["body"]
+    assert "as Dodge" in body and "dodges" in body
+    # The guide's reason reads right after the mapping, before the turn plays out.
+    assert body.index("Ducking low is a dodge.") < body.index("dodges")
