@@ -1,8 +1,9 @@
 // Client for a game session's realtime room (the service's WS /ws/sessions/{id}).
 //
 // The service authenticates the WebSocket handshake with the Clerk token, which
-// browsers can't send as a header — so it goes in the query string, matching
-// boor_service.realtime. Usage:
+// browsers can't send as a header — so it rides as the subprotocol pair
+// ["bearer", token], matching boor_service.realtime. Never the query string: URLs
+// end up in access logs (SEC-01). Usage:
 //
 //   const room = connectSessionRoom({
 //     baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL!,
@@ -84,8 +85,8 @@ export interface SessionRoom {
 
 export function connectSessionRoom(options: SessionRoomOptions): SessionRoom {
   const wsBase = options.baseUrl.replace(/^http/, "ws");
-  const url = `${wsBase}/ws/sessions/${options.sessionId}?token=${encodeURIComponent(options.token)}`;
-  const socket = new WebSocket(url);
+  const url = `${wsBase}/ws/sessions/${options.sessionId}`;
+  const socket = new WebSocket(url, ["bearer", options.token]);
 
   socket.onopen = () => options.onOpen?.();
   socket.onclose = (event) => options.onClose?.(event);
