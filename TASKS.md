@@ -14,7 +14,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/decision 
 See [GUIDED-PLAY-PLAN.md](GUIDED-PLAY-PLAN.md) for the longer roadmap.
 
 - [x] GUIDE-01 — Authored cart rescue: server-authoritative revisioned state, owned/pregen character selection, two approaches, designated-player check, success/failure consequences, host completion, replay, and duplicate-command protection. Ended sessions are read-only.
-- [ ] GUIDE-02 — Playtest with Evan and Evil Evan using PLAYTEST.md; collect where the next action is unclear.
+- [~] GUIDE-02 — Playtest with Evan and Evil Evan using PLAYTEST.md; collect where the next action is unclear. **First pass 2026-10-10 (v5, live, AI guide on):** progressing well. Feedback: on a wide browser the text ran edge to edge, and the screen had too much to take in at once → **GUIDE-LAYOUT** below.
+- [~] GUIDE-LAYOUT — Desktop reading layout for the table: centered, width-capped (`max-w-6xl`); what you act on (scene + tools) in a left column, the running story log + composer on the right; each column scrolls on its own. Narrow windows stack scene → log → tools. Phone UI deliberately out of scope for now.
+- [ ] SEC-01 — The Clerk session JWT rides in the WebSocket `?token=` query string, so uvicorn's access log writes it to Railway logs (short-lived, ~60s, but still credentials in logs). Redact the query string in the access log or move the token to the first WS message.
 - [x] GUIDE-LOBBY — Shared character-selection lobby, explicit readiness, spectators, host start, absent/rejoin controls, and version-one compatibility.
 - [x] GUIDE-TALK — Outcome-aware conversation with Mara, three shared questions without dice, a persisted party destination and ending, and v1/v2 compatibility.
 - [x] GUIDE-COMBAT — Optional bounded sparring: rolled initiative, owned turns, practice HP, strike/dodge/withdraw, automatic opponent, five-round limit, host stop, replay and duplicate-turn protection. No campaign HP or inventory mutation.

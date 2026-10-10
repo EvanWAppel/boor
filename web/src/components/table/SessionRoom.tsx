@@ -115,8 +115,12 @@ function SessionRoomContent({ sessionId }: { sessionId: string }) {
   const ended = session?.status === "ended" || room.entries.some(e => e.kind === "system" && e.payload.type === "session_ended");
   const writable = connected && !ended;
 
+  // Desktop: a two-column reading layout capped at a comfortable width — what you
+  // act on (scene + tools) on the left, the running story log on the right, each
+  // scrolling on its own (see `[data-table-app]` in globals.css). Narrow windows
+  // stack scene → log → tools.
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div data-table-app className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col">
       <header className="flex items-center justify-between border-b border-stone-800 px-4 py-3">
         <div>
           <h1 className="text-lg font-semibold text-amber-100">
@@ -144,21 +148,17 @@ function SessionRoomContent({ sessionId }: { sessionId: string }) {
         </p>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-0 lg:grid-cols-[1fr_20rem]">
-        {/* The log + composer: the conversation and narration. */}
-        <div className="flex min-h-0 flex-col border-r border-stone-800">
-          <GuidedPanel api={api} sessionId={sessionId} campaignId={session?.campaign_id} entries={room.entries} characters={characters}
-            myId={myId} isHost={isDm} connected={connected} ended={ended} />
-          <Log entries={room.entries} bounded={Boolean(guidedRevision)} />
-          <Composer
-            onChat={room.sendChat}
-            onOoc={room.sendOoc}
-            disabled={!writable}
-          />
-        </div>
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)] lg:grid-rows-[minmax(0,1fr)]">
+        {/* What you act on: the scene, then the table tools. One scroll column on
+            desktop; on narrow windows `contents` lets the log slot in between. */}
+        <div className="contents lg:block lg:min-h-0 lg:overflow-y-auto">
+          <div className="order-1">
+            <GuidedPanel api={api} sessionId={sessionId} campaignId={session?.campaign_id} entries={room.entries} characters={characters}
+              myId={myId} isHost={isDm} connected={connected} ended={ended} />
+          </div>
 
-        {/* Table tools. */}
-        <aside className="min-h-0 space-y-3 overflow-y-auto p-3">
+          {/* Table tools, under the scene on desktop. */}
+          <aside className="order-3 space-y-3 p-3">
           {!guidedRevision && <><Panel title="Dice">
             <DiceRoller api={api} onRoll={room.sendRoll} disabled={!writable} />
           </Panel>
@@ -181,7 +181,21 @@ function SessionRoomContent({ sessionId }: { sessionId: string }) {
           <Panel title="Party">
             <SheetPanel characters={characters} />
           </Panel>
-        </aside>
+          </aside>
+        </div>
+
+        {/* The running story: log + composer, pinned to the right on desktop. */}
+        <section aria-label="Story log" className="order-2 flex min-h-0 flex-col border-stone-800 lg:border-l">
+          <h2 className="border-b border-stone-800 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+            Story so far
+          </h2>
+          <Log entries={room.entries} />
+          <Composer
+            onChat={room.sendChat}
+            onOoc={room.sendOoc}
+            disabled={!writable}
+          />
+        </section>
       </div>
     </div>
   );

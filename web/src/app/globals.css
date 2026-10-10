@@ -24,3 +24,12 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* The live table is a fixed-height app on desktop: its scene and story-log columns
+   scroll independently instead of the whole page (SessionRoom.tsx). */
+@media (min-width: 64rem) {
+  body:has([data-table-app]) {
+    height: 100dvh;
+    min-height: 0; /* override the layout's min-h-full so 100dvh wins (iPad/Safari toolbars) */
+  }
+}
