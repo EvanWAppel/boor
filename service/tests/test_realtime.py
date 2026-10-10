@@ -8,6 +8,7 @@ presence broadcast, chat relay + timeline persistence, and multi-socket fan-out.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -37,6 +38,7 @@ from boor_service.realtime import (
     WS_UNAUTHORIZED,
     Presence,
     SessionHub,
+    TokenRedactingFilter,
     handle_connection,
 )
 
@@ -46,15 +48,26 @@ TokenFactory = Callable[..., str]
 class FakeWebSocket:
     """A scripted stand-in for Starlette's WebSocket (see ``realtime.WebSocketLike``)."""
 
-    def __init__(self, *, token: str | None, incoming: list[Any] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        token: str | None,
+        incoming: list[Any] | None = None,
+        subprotocols: str | None = None,
+    ) -> None:
         self.query_params: dict[str, str] = {"token": token} if token is not None else {}
+        self.headers: dict[str, str] = (
+            {"sec-websocket-protocol": subprotocols} if subprotocols is not None else {}
+        )
         self._incoming = iter(incoming or [])
         self.sent: list[Any] = []
         self.accepted = False
+        self.subprotocol: str | None = None
         self.close_code: int | None = None
 
-    async def accept(self) -> None:
+    async def accept(self, subprotocol: str | None = None) -> None:
         self.accepted = True
+        self.subprotocol = subprotocol
 
     async def receive_json(self) -> Any:
         from fastapi import WebSocketDisconnect
@@ -82,6 +95,96 @@ async def _member_session(
 
 
 # --- auth handshake --------------------------------------------------------
+
+
+async def test_token_in_subprotocol_header_authenticates_and_echoes_bearer(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    # SEC-01: the browser sends the token as a WS subprotocol so it never appears
+    # in a URL (and so never in an access log). The server must echo "bearer".
+    _user, session_id = await _member_session(session, clerk_id="clerk_sub", email="s@x.com")
+    ws = FakeWebSocket(
+        token=None,
+        subprotocols=f"bearer, {mint_token(sub='clerk_sub', email='s@x.com')}",
+        incoming=[{"type": "chat", "body": "via header"}],
+    )
+    await handle_connection(ws, session_id, session, clerk_verifier, SessionHub())
+    assert ws.subprotocol == "bearer"
+    assert ws.close_code is None
+    assert any(m.get("type") == "chat" for m in ws.sent)
+
+
+async def test_bearer_subprotocol_without_a_token_closes_unauthorized(
+    session: AsyncSession, clerk_verifier: ClerkVerifier
+) -> None:
+    _user, session_id = await _member_session(session, clerk_id="clerk_nt", email="nt@x.com")
+    ws = FakeWebSocket(token=None, subprotocols="bearer")
+    await handle_connection(ws, session_id, session, clerk_verifier, SessionHub())
+    assert ws.close_code == WS_UNAUTHORIZED
+
+
+async def test_header_token_wins_over_query_token(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    # A bad header token must not fall back to a valid query token.
+    _user, session_id = await _member_session(session, clerk_id="clerk_pr", email="pr@x.com")
+    ws = FakeWebSocket(
+        token=mint_token(sub="clerk_pr", email="pr@x.com"),
+        subprotocols=f"bearer, {mint_token(exp_delta=-3600)}",
+    )
+    await handle_connection(ws, session_id, session, clerk_verifier, SessionHub())
+    assert ws.close_code == WS_UNAUTHORIZED
+
+
+async def test_malformed_subprotocol_falls_back_to_query_without_echo(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    _user, session_id = await _member_session(session, clerk_id="clerk_mf", email="mf@x.com")
+    ws = FakeWebSocket(
+        token=mint_token(sub="clerk_mf", email="mf@x.com"), subprotocols="bearer, a, b"
+    )
+    await handle_connection(ws, session_id, session, clerk_verifier, SessionHub())
+    assert ws.subprotocol is None
+    assert ws.close_code is None
+
+
+def test_debug_header_logs_redact_bearer_tokens() -> None:
+    record = logging.LogRecord(
+        "uvicorn.error",
+        logging.DEBUG,
+        __file__,
+        1,
+        "< %s: %s",
+        ("sec-websocket-protocol", "bearer, eyJ.secret.sig"),
+        None,
+    )
+    TokenRedactingFilter().filter(record)
+    assert "eyJ.secret.sig" not in record.getMessage()
+
+
+def test_access_log_redacts_ws_tokens() -> None:
+    # uvicorn logs the WS handshake path (query string included) on "uvicorn.error"
+    # and HTTP requests on "uvicorn.access"; neither may carry a session token.
+    record = logging.LogRecord(
+        "uvicorn.error",
+        logging.INFO,
+        __file__,
+        1,
+        '%s - "WebSocket %s" [accepted]',
+        ("1.2.3.4:5", "/ws/sessions/abc?token=eyJ.secret.sig&x=1"),
+        None,
+    )
+    assert TokenRedactingFilter().filter(record) is True
+    message = record.getMessage()
+    assert "eyJ.secret.sig" not in message
+    assert "token=[redacted]&x=1" in message
+
+
+def test_redaction_is_installed_on_uvicorn_loggers() -> None:
+    import boor_service.api  # noqa: F401  (import installs the filter)
+
+    for name in ("uvicorn.error", "uvicorn.access"):
+        assert any(isinstance(f, TokenRedactingFilter) for f in logging.getLogger(name).filters)
 
 
 async def test_missing_token_closes_unauthorized(

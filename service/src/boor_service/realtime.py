@@ -3,8 +3,12 @@
 Decision D-01/D-03: realtime is **self-hosted WebSockets on the service**, and the
 service **verifies the Clerk token on the WS handshake** just like an HTTP call —
 it never trusts the client blindly. A client connects to a game session's room
-with ``?token=<clerk-jwt>``; we verify it, mirror the user, confirm they're a
-member of the session's campaign, then join them to the room.
+offering the WS subprotocols ``bearer, <clerk-jwt>`` (browsers can't set WS
+headers, and a subprotocol keeps the token out of URLs and access logs — SEC-01);
+we echo ``bearer``, verify the token, mirror the user, confirm they're a member of
+the session's campaign, then join them to the room. The older ``?token=`` query
+parameter is still accepted during the web rollout; :class:`TokenRedactingFilter`
+keeps it out of the logs.
 
 The room broadcasts presence (who's here) and relays typed messages to everyone
 present. ``chat`` messages are also appended to the session timeline (DATA-03), so
@@ -17,6 +21,7 @@ local keypair — no live socket, no network.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -45,13 +50,57 @@ WS_UNAUTHORIZED = 4401
 WS_FORBIDDEN = 4403
 WS_NOT_FOUND = 4404
 
+BEARER_SUBPROTOCOL = "bearer"
+# ``token=<jwt>`` in a logged path, and ``bearer, <jwt>`` in the subprotocol header
+# (the websockets library logs handshake headers at DEBUG).
+_TOKEN_IN_LOG = re.compile(r"(token=|bearer,\s*)[^&\s\"',]+", re.IGNORECASE)
+
+
+class TokenRedactingFilter(logging.Filter):
+    """Blank session tokens in log records (SEC-01).
+
+    uvicorn writes the full request path, query string included, for HTTP requests
+    (``uvicorn.access``) and WS handshakes (``uvicorn.error``). Installed on both by
+    :func:`install_log_redaction` so a legacy ``?token=`` never lands in the logs.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                _TOKEN_IN_LOG.sub(r"\1[redacted]", a) if isinstance(a, str) else a
+                for a in record.args
+            )
+        if isinstance(record.msg, str):
+            record.msg = _TOKEN_IN_LOG.sub(r"\1[redacted]", record.msg)
+        return True
+
+
+def install_log_redaction() -> None:
+    """Attach :class:`TokenRedactingFilter` to uvicorn's loggers (idempotent)."""
+    for name in ("uvicorn.error", "uvicorn.access"):
+        target = logging.getLogger(name)
+        if not any(isinstance(f, TokenRedactingFilter) for f in target.filters):
+            target.addFilter(TokenRedactingFilter())
+
+
+def _bearer_token(subprotocols: str | None) -> str | None:
+    """The token from a ``bearer, <token>`` subprotocol offer, else None."""
+    if not subprotocols:
+        return None
+    offered = [p.strip() for p in subprotocols.split(",")]
+    if len(offered) == 2 and offered[0] == BEARER_SUBPROTOCOL and offered[1]:
+        return offered[1]
+    return None
+
 
 class WebSocketLike(Protocol):
     """The slice of Starlette's ``WebSocket`` the handler uses (fake-able in tests)."""
 
     @property
     def query_params(self) -> Any: ...
-    async def accept(self) -> None: ...
+    @property
+    def headers(self) -> Any: ...
+    async def accept(self, subprotocol: str | None = None) -> None: ...
     async def receive_json(self) -> Any: ...
     async def send_json(self, data: Any) -> None: ...
     async def close(self, code: int = 1000) -> None: ...
@@ -353,8 +402,11 @@ async def handle_connection(
     room: SessionHub,
 ) -> None:
     """Accept, authenticate, and run one client's connection to a session room."""
-    await socket.accept()
-    token = socket.query_params.get("token")
+    offered = socket.headers.get("sec-websocket-protocol")
+    header_token = _bearer_token(offered)
+    # A browser drops the connection unless we echo one of the offered subprotocols.
+    await socket.accept(subprotocol=BEARER_SUBPROTOCOL if header_token else None)
+    token = header_token or socket.query_params.get("token")
     authorized = await _authorize(socket, session_id, token, db, verifier)
     if authorized is None:
         return
