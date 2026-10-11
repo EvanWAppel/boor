@@ -71,6 +71,7 @@ def context_for(state: dict[str, Any]) -> ProposalContext:
         approaches=guided_scenes.proposal_options(state),
         character_name=proposal["name"],
         proposal=proposal["text"],
+        allow_custom_check=state.get("scene") in guided_scenes.CHECK_SCENES,
     )
 
 
@@ -139,7 +140,11 @@ async def apply_decision(
     narration: str | None = None
     if decision is not None and not state.get("paused"):
         try:
-            if decision.approach:
+            if decision.skill:
+                narration = await guided_scenes.run_custom_check(
+                    db, state, decision.skill, decision.dc, by="The AI guide", why=decision.reason
+                )
+            elif decision.approach:
                 narration = await guided_scenes.accept_proposal(
                     db, state, decision.approach, by="The AI guide", why=decision.reason
                 )

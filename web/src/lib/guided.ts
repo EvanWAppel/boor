@@ -32,7 +32,7 @@ export interface GuidedState {
 export interface GuidedCommand {
   request_id: string;
   revision: number;
-  action: "start" | "select" | "approach" | "roll" | "cancel" | "continue" | "ready" | "unready" | "watch" | "join" | "exclude" | "begin" | "ask" | "choose" | "combat_action" | "stop_practice" | "skip_practice" | "propose" | "accept_proposal" | "decline_proposal" | "pause" | "pause_note" | "resume";
+  action: "start" | "select" | "approach" | "roll" | "cancel" | "continue" | "ready" | "unready" | "watch" | "join" | "exclude" | "begin" | "ask" | "choose" | "combat_action" | "stop_practice" | "skip_practice" | "propose" | "accept_proposal" | "decline_proposal" | "custom_check" | "pause" | "pause_note" | "resume";
   move?: "strike" | "dodge" | "withdraw";
   topic?: "road" | "river" | "mara";
   choice?: "town" | "river";
@@ -42,6 +42,9 @@ export interface GuidedCommand {
   approach?: string;
   target?: string;
   text?: string;
+  /** custom_check: an SRD skill id and one of DIFFICULTIES' dc values. */
+  skill?: string;
+  dc?: number;
 }
 
 const GUIDED_TYPES = new Set(["guided_cart_v1", "guided_cart_v2", "guided_cart_v3", "guided_cart_v4", "guided_cart_v5"]);
@@ -119,4 +122,25 @@ export function canPropose(
     return !!e && !e.outcome && e.order[e.index] === myId;
   }
   return proposalOptions(state).length > 0;
+}
+
+// v5 free-form checks (check scenes only; decided 2026-10-10): a proposal that fits no
+// offered approach can run as its own check, resolved against the scene's authored
+// outcome. Mirrors boor_service.character.SKILLS and ai.adjudicator.CUSTOM_DCS.
+const SKILL_IDS = [
+  "athletics", "acrobatics", "sleight_of_hand", "stealth", "arcana", "history", "investigation",
+  "nature", "religion", "animal_handling", "insight", "medicine", "perception", "survival",
+  "deception", "intimidation", "performance", "persuasion",
+] as const;
+export const SKILL_OPTIONS = SKILL_IDS
+  .map(id => ({ id, label: id.split("_").map(w => w[0].toUpperCase() + w.slice(1)).join(" ") }))
+  .sort((a, b) => a.label.localeCompare(b.label));
+export const DIFFICULTIES = [
+  { dc: 10, label: "Easy", hint: "Simple and likely" },
+  { dc: 12, label: "Medium", hint: "A fair challenge" },
+  { dc: 15, label: "Hard", hint: "Far-fetched but possible" },
+] as const;
+
+export function canRunCustomCheck(state: Pick<GuidedState, "version" | "scene" | "phase" | "proposal">): boolean {
+  return state.version >= 5 && CHECK_SCENES.has(state.scene ?? "") && state.phase === "ready" && !!state.proposal;
 }

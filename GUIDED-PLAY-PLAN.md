@@ -436,5 +436,8 @@ The model may only run it as one of the scene's authored approaches (the propose
 rolls through the normal rules engine) or decline it with a short reason; it never
 invents outcomes, skills, or DCs. The result is labelled "AI guide". The host can answer
 first and their answer stands; if the AI fails, or play is paused while it thinks, the
-proposal is marked for the host. Proposals are never silently resolved. Still planned: proposals in non-check scenes, model-driven
-free-form adjudication, and a real two-account playtest of the full chapter (GUIDE-02).
+proposal is marked for the host. Proposals are never silently resolved. Since then (2026-10-10): proposals also work in the Mara conversation (unasked questions
+only) and the fight (the active character's turn), and in check scenes an idea that fits
+no offered approach can run as its own bounded check — any SRD skill at easy/medium/hard
+— resolved against the scene's authored outcome. Still planned: the full two-account
+playtest of the chapter (GUIDE-02).
