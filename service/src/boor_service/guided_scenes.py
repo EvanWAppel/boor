@@ -25,6 +25,8 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from boor_service import guided_combat
+from boor_service.ai.adjudicator import CUSTOM_DCS
+from boor_service.character import SKILLS
 from boor_service.character import Character as Sheet
 from boor_service.db.models import Character
 from boor_service.guided_story import (
@@ -379,7 +381,7 @@ async def apply(
 
 
 PAUSE_ACTIONS = {"pause", "pause_note", "resume"}
-PROPOSAL_ACTIONS = {"propose", "accept_proposal", "decline_proposal"}
+PROPOSAL_ACTIONS = {"propose", "accept_proposal", "decline_proposal", "custom_check"}
 V5_ONLY_ACTIONS = PAUSE_ACTIONS | PROPOSAL_ACTIONS
 
 
@@ -560,6 +562,62 @@ async def accept_proposal(
     return f"{idea} {option['label']}.{because} Roll a twenty-sided die; the app adds {bonus:+}."
 
 
+DIFFICULTY = {10: "easy", 12: "medium", 15: "hard"}
+
+
+async def run_custom_check(
+    session: AsyncSession,
+    state: dict,
+    skill: str | None,
+    dc: int | None,
+    *,
+    by: str,
+    why: str | None = None,
+) -> str:
+    """Run the open proposal as its own check (check scenes only; decided 2026-10-10).
+
+    Any SRD skill at Easy 10 / Medium 12 / Hard 15. The roll then resolves against
+    the scene's authored success/failure, so the story graph is unchanged. Shared by
+    the host and the AI guide. Raises before mutating.
+    """
+    proposal = state.get("proposal")
+    if not proposal or not _proposal_open_phase(state):
+        raise HTTPException(409, "There is no proposal to run right now.")
+    if state.get("scene") not in CHECK_SCENES:
+        raise HTTPException(409, "A new check is only available in check scenes.")
+    if skill not in SKILLS:
+        raise HTTPException(422, "Choose one of the listed skills.")
+    if dc not in CUSTOM_DCS:
+        raise HTTPException(422, "Choose easy (10), medium (12), or hard (15).")
+    proposer = proposal["user_id"]
+    participants = state["participants"]
+    if proposer not in participants:
+        raise HTTPException(409, "The player who proposed is no longer in the party.")
+    character = await session.get(Character, uuid.UUID(participants[proposer]["character_id"]))
+    if character is None or str(character.player_id) != proposer:
+        raise HTTPException(409, "That character is unavailable. Ask them to choose again.")
+    skill_name = skill.replace("_", " ").title()
+    bonus = Sheet.from_sheet(character.sheet).skill_bonus(skill)
+    state["pending"] = dict(
+        user_id=proposer,
+        character_id=str(character.id),
+        name=character.name,
+        approach="custom",
+        label=f"Their own idea: “{proposal['text']}” · {skill_name}, {DIFFICULTY[dc]}",
+        skill=skill,
+        bonus=bonus,
+        dc=dc,
+    )
+    state["phase"] = "check"
+    state["proposal"] = None
+    because = f" {why.strip()}" if why and why.strip() else ""
+    return (
+        f"{by} runs {character.name}'s idea (“{proposal['text']}”) as its own "
+        f"{skill_name} check, {DIFFICULTY[dc]} ({dc}).{because} "
+        f"Roll a twenty-sided die; the app adds {bonus:+}."
+    )
+
+
 def decline_proposal(state: dict, reason: str | None, *, by: str) -> str:
     """Decline the open proposal with a written reason. Raises before mutating."""
     proposal = state.get("proposal")
@@ -610,6 +668,10 @@ async def _apply_proposal(session, state: dict, body, user, is_host: bool) -> st
         raise HTTPException(403, "Only the host can respond to a proposal.")
     if body.action == "accept_proposal":
         return await accept_proposal(session, state, body.approach, by="The host")
+    if body.action == "custom_check":
+        return await run_custom_check(
+            session, state, body.skill, body.dc, by="The host", why=body.text
+        )
     return decline_proposal(state, body.text, by="The host")
 
 

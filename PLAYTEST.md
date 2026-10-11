@@ -64,6 +64,12 @@ as …** to run it as one of the offered checks (the player who proposed becomes
 roller) or type a reason and **Send reply instead**. The proposed text stays in the log
 either way. Refresh mid-proposal: the open proposal is preserved.
 
+At a check scene, an idea that fits none of the offered actions can now become **its own
+check**. Try "I calm the mule and coax it to pull" at the cart: the AI guide (or, as host,
+**Or run it as its own check** → pick Animal Handling + a difficulty) should make it an
+easy/medium/hard check with that skill. Roll it: success or failure still gives the
+scene's usual outcome. Something impossible ("I summon a dragon") should still be declined.
+
 The same box now appears in the **conversation with Mara** and in the **fight**:
 - With Mara, an idea can only become one of her questions you haven't asked yet (e.g.
   "What's in the crates?" → *Why is this delivery important to you?*). The party's

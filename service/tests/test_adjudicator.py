@@ -4,6 +4,7 @@ The model is mocked (a fake client returning canned JSON); one env-gated test hi
 the live API. Every model failure raises — the caller falls back to the host.
 """
 
+import dataclasses
 import json
 import os
 from types import SimpleNamespace
@@ -153,3 +154,52 @@ def test_options_without_a_skill_render_and_constrain_the_schema() -> None:
     assert '- id "dodge": Dodge (Harder to hit)' in call["messages"][0]["content"]
     schema = call["output_config"]["format"]["schema"]
     assert schema["properties"]["approach"]["enum"] == ["strike:bandit1", "dodge", "none"]
+
+
+# --- Free-form checks (check scenes only; decided 2026-10-10) -----------------
+
+
+def _custom_context(text: str = "I sneak around and push from behind") -> ProposalContext:
+    return dataclasses.replace(_context(text), allow_custom_check=True)
+
+
+def test_custom_check_is_offered_only_when_allowed() -> None:
+    client = _answer({"decision": "run", "approach": "lift", "reason": "Fits."})
+    adjudicate(client, _context())
+    schema = client.beta.messages.calls[0]["output_config"]["format"]["schema"]
+    assert schema["properties"]["decision"]["enum"] == ["run", "decline"]
+    assert "skill" not in schema["properties"]
+
+    payload = {
+        "decision": "check",
+        "approach": "none",
+        "skill": "stealth",
+        "dc": 10,
+        "reason": "Sneaking is fair.",
+    }
+    client = _answer(payload)
+    result = adjudicate(client, _custom_context())
+    assert (result.approach, result.skill, result.dc) == (None, "stealth", 10)
+    schema = client.beta.messages.calls[0]["output_config"]["format"]["schema"]
+    assert schema["properties"]["decision"]["enum"] == ["run", "check", "decline"]
+    assert "animal_handling" in schema["properties"]["skill"]["enum"]
+    assert schema["properties"]["dc"]["enum"] == [10, 12, 15, 0]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"decision": "check", "approach": "none", "skill": "flying", "dc": 12, "reason": "x"},
+        {"decision": "check", "approach": "none", "skill": "stealth", "dc": 13, "reason": "x"},
+        {"decision": "check", "approach": "none", "skill": "none", "dc": 12, "reason": "x"},
+    ],
+)
+def test_invalid_custom_check_raises(payload: dict) -> None:
+    with pytest.raises(AdjudicationError):
+        adjudicate(_answer(payload), _custom_context())
+
+
+def test_custom_check_answer_is_rejected_where_not_allowed() -> None:
+    payload = {"decision": "check", "approach": "none", "skill": "stealth", "dc": 10, "reason": "x"}
+    with pytest.raises(AdjudicationError):
+        adjudicate(_answer(payload), _context())

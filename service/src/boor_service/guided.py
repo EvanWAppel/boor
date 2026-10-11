@@ -100,6 +100,7 @@ class Command(BaseModel):
         "propose",
         "accept_proposal",
         "decline_proposal",
+        "custom_check",
         "pause",
         "pause_note",
         "resume",
@@ -118,6 +119,10 @@ class Command(BaseModel):
     # Free-form proposal text (v5 "try something else"), a host's decline reason,
     # or the pauser's optional note.
     text: str | None = Field(default=None, max_length=500)
+    # A host's free-form check for an open proposal (v5 check scenes): any SRD skill,
+    # Easy 10 / Medium 12 / Hard 15. Validated in guided_scenes.run_custom_check.
+    skill: str | None = None
+    dc: int | None = None
 
 
 def events_query(session_id: uuid.UUID):

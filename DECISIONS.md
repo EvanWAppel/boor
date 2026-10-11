@@ -223,3 +223,12 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
     wins; failures hand back to the host; same cooldown and spend cap). Rejected: host-only.
   - *Stopping the fight* with an idea still open closes it with a visible "goes
     unanswered" line in the log rather than dropping it.
+- **Free-form ideas become bounded checks (check scenes) — confirmed by Evan 2026-10-10:**
+  - *Outcomes:* a new check resolves against the scene's **authored** success/failure, so
+    the story graph and every consequence stay authored; the AI/host adds only a one-line
+    "how it could play out". Rejected: AI-written outcome text (AI prose becomes canon).
+  - *Bounds:* any of the 18 SRD skills at Easy 10 / Medium 12 / Hard 15, schema-constrained
+    and re-validated server-side. Rejected: scene DC only (no nuance for far-fetched ideas).
+  - *Where:* check scenes only; the conversation and the fight keep mapping to offered
+    options. Rejected: fight skill checks (needs new combat effects).
+  - *Who:* the AI guide and the host; the host can answer first and wins. Rejected: host only.

@@ -73,3 +73,16 @@ test('canPropose: playing characters in open check/conversation steps; only the 
   assert.equal(canPropose({ ...base, scene: 'battle', phase: 'combat', encounter, proposal: { user_id: 'a' } }, 'a'), false);
   assert.equal(canPropose({ ...base, version: 4, scene: 'cart', phase: 'ready', actions: [{ id: 'lift' }] }, 'a'), false);
 });
+
+// Free-form checks (check scenes only): SRD skills + three difficulties, mirroring
+// boor_service.character.SKILLS and ai.adjudicator.CUSTOM_DCS.
+test('custom checks offer the 18 SRD skills at easy/medium/hard', async () => {
+  const { SKILL_OPTIONS, DIFFICULTIES, canRunCustomCheck } = await import('../src/lib/guided.ts');
+  assert.equal(SKILL_OPTIONS.length, 18);
+  assert.ok(SKILL_OPTIONS.some(s => s.id === 'animal_handling' && s.label === 'Animal Handling'));
+  assert.deepEqual(DIFFICULTIES.map(d => d.dc), [10, 12, 15]);
+  const proposal = { user_id: 'a', name: 'Rowan', text: 'x' };
+  assert.equal(canRunCustomCheck({ version: 5, scene: 'cart', phase: 'ready', proposal }), true);
+  assert.equal(canRunCustomCheck({ version: 5, scene: 'mara', phase: 'conversation', proposal }), false);
+  assert.equal(canRunCustomCheck({ version: 5, scene: 'cart', phase: 'ready', proposal: null }), false);
+});
