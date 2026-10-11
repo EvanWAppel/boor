@@ -22,6 +22,7 @@ import type {
   MembershipRole,
   Profile,
   ProfileInput,
+  Recap,
   RedLine,
   RedLineInput,
   RollResult,
@@ -146,6 +147,15 @@ export function createApiClient({ baseUrl, getToken }: ApiClientOptions) {
       request<SessionEvent[]>("GET", `/sessions/${sessionId}/log`),
     endSession: (sessionId: string) =>
       request<GameSession>("POST", `/sessions/${sessionId}/end`),
+
+    // AI-09 recaps
+    listRecaps: (campaignId: string) =>
+      request<Recap[]>("GET", `/campaigns/${campaignId}/recaps`),
+    markRecapRead: (recapId: string) => request<Recap>("POST", `/recaps/${recapId}/read`),
+    shareRecap: (recapId: string) => request<Recap>("POST", `/recaps/${recapId}/share`),
+    flagRecap: (recapId: string, quote: string, note: string) =>
+      request<Recap>("POST", `/recaps/${recapId}/flags`, { quote, note }),
+    retryRecap: (recapId: string) => request<Recap>("POST", `/recaps/${recapId}/retry`),
   };
 }
 

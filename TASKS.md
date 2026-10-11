@@ -91,11 +91,7 @@ De-risk early with a thin prototype before polishing.
 - [x] AI-06 — Respect red-lines / autonomy bounds; refuse/avoid forbidden actions — pure enforcement layer `boor_service.ai.guardrails.check_action` (Allowed | Refused), 15 tests. Wired into `decide_action`: every proposed action is gated *before* the engine rolls; refusals are logged, not executed.
 - [x] AI-07 — Thinking/error feedback, one in-flight AI turn per session/process, 25-second deadline, off-thread model call, and retryable errors. Live latency tuning remains part of the playtest.
 - [x] AI-08 — Attribution: every stand-in action is persisted with `ai_generated=True` on the `SessionEvent` (incl. refusals), so the timeline clearly marks AI-controlled actions.
-- [ ] AI-09 — Per-player post-session recap ("here's what your character did").
-      **Primer §7.5 elevates this to a first-class output, not a log:** written in the
-      character's voice as decisions the character made and now lives with, delivered
-      *before* the player's next session. Flagged as the product's best marketing
-      surface (shareable artifact).
+- [x] AI-09 — Per-player post-session recap in the character's voice (primer §7.5). Written automatically at session end for each character the stand-in played (background model call over the character's scoped timeline + persona); private to player + DM until the player shares; read-only with "not my character" flags (kept for AI-10); the DM can retry a failed one. Delivered in-app: campaign page + a "while you were away" screen before the next table visit. **Email delivery and production stand-ins are in BLOCKED.md.**
 - [ ] AI-10 — Profile learning: refine persona from that character's session history over time
 - [~] AI-11 — Thin prototype + friends playtest of stand-in believability (validate the bet). **Eval harness built** (`boor_service.evals`): scripted scenarios graded on mechanical validity, red-line adherence, and LLM-as-judge persona fidelity → scorecard (`python -m boor_service.evals`). **Live friends playtest still pending.**
 - [ ] AI-12 — **Consequence tiers** (`build-primer.md` §7.3). Extend the binary

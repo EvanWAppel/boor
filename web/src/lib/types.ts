@@ -161,3 +161,30 @@ export interface SessionEvent {
   visible_to: string[];
   created_at: string;
 }
+
+/** AI-09: a session recap in a character's voice (mirrors boor_service.recaps.RecapOut). */
+export type RecapStatus = "pending" | "ready" | "failed";
+
+export interface RecapFlag {
+  quote: string;
+  note: string;
+  created_at: string;
+}
+
+export interface Recap {
+  id: string;
+  session_id: string;
+  session_title: string;
+  character_id: string;
+  character_name: string;
+  status: RecapStatus;
+  body: string;
+  /** Only filled in for the DM. */
+  error: string;
+  shared: boolean;
+  read: boolean;
+  mine: boolean;
+  /** Visible to the character's player and the DM only. */
+  flags: RecapFlag[];
+  created_at: string;
+}
