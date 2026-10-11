@@ -251,3 +251,32 @@ def fake_adjudicator(monkeypatch: pytest.MonkeyPatch) -> FakeAdjudicator:
     monkeypatch.setattr(guided_ai, "get_client", lambda: object())
     monkeypatch.setattr(guided_ai, "decide", _decide)
     return fake
+
+
+class FakeRecapWriter:
+    """Stands in for the recap model call (AI-09). ``result`` is the recap text or an
+    exception to raise; ``calls`` records each :class:`RecapContext` it was given."""
+
+    def __init__(self) -> None:
+        self.result: str | Exception = "I kept watch. I warned them. I'd do it again."
+        self.calls: list[Any] = []
+
+
+@pytest.fixture
+def fake_recap_writer(monkeypatch: pytest.MonkeyPatch) -> FakeRecapWriter:
+    """Enable recaps with a scripted writer (no network, no key)."""
+    from boor_service import recaps
+
+    fake = FakeRecapWriter()
+
+    async def _write(_client: Any, ctx: Any) -> Any:
+        from boor_service.ai.recap import Written
+
+        fake.calls.append(ctx)
+        if isinstance(fake.result, Exception):
+            raise fake.result
+        return Written(text=fake.result, model="claude-opus-5")
+
+    monkeypatch.setattr(recaps, "get_client", lambda: object())
+    monkeypatch.setattr(recaps, "write", _write)
+    return fake

@@ -232,3 +232,18 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
   - *Where:* check scenes only; the conversation and the fight keep mapping to offered
     options. Rejected: fight skill checks (needs new combat effects).
   - *Who:* the AI guide and the host; the host can answer first and wins. Rejected: host only.
+- **AI-09 character recaps — confirmed by Evan 2026-10-10:**
+  - *Trigger:* written automatically when the DM ends a session, one per character the
+    AI stand-in took at least one turn for, in a background task. Rejected: a DM "write
+    recaps" button (easy to forget). A failed write is kept with its reason; the DM retries.
+  - *Delivery:* in-app — the campaign page ("While you were away") and a screen before the
+    table on the player's next visit. Rejected for now: email (needs a provider account;
+    recorded in BLOCKED.md).
+  - *Visibility:* private to the character's player and the DM until the player shares it
+    with the table. Rejected: whole table by default (takes the choice from the player).
+  - *Response:* read-only; the player can flag lines as "not my character" with a note,
+    kept for profile learning (AI-10). The recap text is never rewritten. Rejected: no
+    feedback channel.
+  - *Input:* only the character's scoped timeline (DATA-07) plus persona and standing
+    instructions, as quoted data. Model `claude-opus-5` at medium effort, structured output,
+    server-side refusal fallback; `RECAP_MODEL` overrides.

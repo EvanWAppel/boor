@@ -14,6 +14,7 @@ import type {
   GameSession,
   Member,
   MembershipRole,
+  Recap,
 } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 
@@ -27,6 +28,7 @@ import {
   StatusBadge,
   TextInput,
 } from "../ui";
+import RecapCard from "../recaps/RecapCard";
 import NewCharacterForm from "./NewCharacterForm";
 
 export default function CampaignDetail({ campaignId }: { campaignId: string }) {
@@ -35,6 +37,7 @@ export default function CampaignDetail({ campaignId }: { campaignId: string }) {
   const [sessions, setSessions] = useState<GameSession[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [recaps, setRecaps] = useState<Recap[]>([]);
   const [myId, setMyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [notMember, setNotMember] = useState(false);
@@ -56,12 +59,14 @@ export default function CampaignDetail({ campaignId }: { campaignId: string }) {
           setNotMember(true);
           return; // the finally still clears loading
         }
-        const [s, m, ch] = await Promise.all([
+        const [s, m, ch, r] = await Promise.all([
           client.listSessions(campaignId),
           client.listMembers(campaignId),
           client.listCharacters(campaignId),
+          client.listRecaps(campaignId),
         ]);
         if (cancelled) return;
+        setRecaps(r);
         setSessions(s);
         setMembers(m);
         setCharacters(ch);
@@ -148,6 +153,15 @@ export default function CampaignDetail({ campaignId }: { campaignId: string }) {
       </div>
 
       <ErrorText>{error}</ErrorText>
+
+      {/* AI-09: recaps in the voice of characters the AI stand-in played. */}
+      {api && recaps.length > 0 && <section className="mb-8">
+        <SectionHeader title="While you were away" />
+        <div className="space-y-3">
+          {recaps.map(r => <RecapCard key={r.id} api={api} recap={r} isDm={isDm}
+            onChange={updated => setRecaps(prev => prev.map(x => (x.id === updated.id ? updated : x)))} />)}
+        </div>
+      </section>}
 
       {/* Sessions */}
       <section className="mb-8">

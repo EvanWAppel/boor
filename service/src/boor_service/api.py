@@ -19,16 +19,17 @@ import logging
 import os
 import uuid
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from boor_service import guided, mechanics, realtime
+from boor_service import guided, mechanics, realtime, recaps
 from boor_service.ai.actions import ActionType
 from boor_service.ai.guardrails import RedLine, RedLineKind
 from boor_service.ai.table import router as standin_router
@@ -57,6 +58,7 @@ from boor_service.db.models import (
     SessionEvent,
     SessionStatus,
 )
+from boor_service.db.session import get_sessionmaker
 from boor_service.dice import RollResult, roll, roll_d20
 
 logger = logging.getLogger(__name__)
@@ -687,8 +689,13 @@ async def get_session_log(
 
 
 @app.post("/sessions/{session_id}/end", response_model=SessionOut)
-async def end_game_session(game_session: GameSessionForDM, session: SessionDep) -> SessionOut:
-    """Mark a session ended — DM only."""
+async def end_game_session(
+    game_session: GameSessionForDM,
+    session: SessionDep,
+    background: BackgroundTasks,
+    sessions: Annotated[async_sessionmaker, Depends(get_sessionmaker)],
+) -> SessionOut:
+    """Mark a session ended — DM only. Queues the stand-in characters' recaps (AI-09)."""
     await session.execute(
         select(GameSession.id).where(GameSession.id == game_session.id).with_for_update()
     )
@@ -699,7 +706,10 @@ async def end_game_session(game_session: GameSessionForDM, session: SessionDep) 
         payload={"type": "session_ended"},
     ) if game_session.status != SessionStatus.ended else None
     ended = await repository.end_session(session, game_session=game_session)
+    new_recaps = await recaps.create_pending(session, ended) if event else []
     await session.commit()
+    for recap_id in new_recaps:
+        background.add_task(recaps.generate, sessions, recap_id)
     if event:
         await realtime.hub.broadcast(game_session.id, {
             "type": "event", "seq": event.seq, "kind": "system", "body": event.body,
@@ -787,3 +797,4 @@ async def session_ws(
 
 app.include_router(standin_router)
 app.include_router(guided.router)
+app.include_router(recaps.router)

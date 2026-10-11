@@ -135,3 +135,17 @@ modifiers; this is not a complete automated encounter runner.
   editing, stand-in handoff, scripted AI output/attribution, and control restoration.
 - Scripted-model tests make no paid API calls. Real Clerk two-account playtest and
   live-model believability validation are still pending.
+
+## Character recaps (AI-09)
+
+Needs `ENABLE_STANDINS=1` on the Railway `service` (see BLOCKED.md).
+
+1. In a normal (non-guided) session, as Evil Evan give your character a stand-in profile
+   (persona + standing instructions) and mark them AI-controlled.
+2. As Evan (DM), take one or two **AI stand-in turns** for that character, then **End the
+   session**.
+3. Within a minute, the campaign page shows **While you were away** with the recap in the
+   character's voice. Evan sees it too; a third player would not.
+4. As Evil Evan, open a new session: a **Before you sit down** screen shows the recap
+   first. **I've read it. Continue to the table** goes to the table and doesn't show it again.
+5. Try **Not my character…** on a line, and **Share with the table**. The recap text never changes.

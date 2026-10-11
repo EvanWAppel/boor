@@ -25,6 +25,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -97,6 +98,14 @@ class EventAudience(enum.StrEnum):
     dm = "dm"
 
 
+class RecapStatus(enum.StrEnum):
+    """Lifecycle of a character recap (AI-09): written in the background at session end."""
+
+    pending = "pending"
+    ready = "ready"
+    failed = "failed"
+
+
 #: Event kinds that make up the readable story log (narrative prose).
 STORY_KINDS = frozenset({EventKind.narration, EventKind.in_character})
 
@@ -111,6 +120,7 @@ _RISK_TOLERANCE_ENUM = Enum(RiskTolerance, name="risk_tolerance")
 # Reuses the same RedLineKind the pure checker evaluates, so persisted red lines
 # round-trip straight back into boor_service.ai.guardrails.check_action.
 _RED_LINE_KIND_ENUM = Enum(RedLineKind, name="red_line_kind")
+_RECAP_STATUS_ENUM = Enum(RecapStatus, name="recap_status")
 
 _TOKEN_BYTES = 32
 
@@ -355,3 +365,55 @@ class CharacterRedLine(UUIDPrimaryKey, Timestamped, Base):
             action_types=frozenset(ActionType(a) for a in self.action_types),
             note=self.note,
         )
+
+
+class CharacterRecap(UUIDPrimaryKey, Timestamped, Base):
+    """A session recap in a character's own voice (AI-09, primer §7.5).
+
+    One per (session, character), written in the background when the DM ends a
+    session in which the AI stand-in played the character. Private to the
+    character's player and the DM until the player shares it (``shared_at``).
+    ``read_at`` is the player's own read mark. The body is never rewritten once
+    ready; the player can only flag lines (:class:`RecapFlag`).
+    """
+
+    __tablename__ = "character_recaps"
+    __table_args__ = (UniqueConstraint("session_id", "character_id"),)
+
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("game_sessions.id", ondelete="CASCADE"), index=True
+    )
+    character_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("characters.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[RecapStatus] = mapped_column(_RECAP_STATUS_ENUM, default=RecapStatus.pending)
+    body: Mapped[str] = mapped_column(String, default="")
+    #: Why the last attempt failed (shown to the DM, who can retry).
+    error: Mapped[str] = mapped_column(String, default="")
+    model: Mapped[str] = mapped_column(String, default="")
+    shared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: When the current write attempt began; a pending recap older than
+    #: ``recaps.STALE_PENDING`` is presumed lost (e.g. a restart) and may be retried.
+    attempted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    flags: Mapped[list[RecapFlag]] = relationship(
+        back_populates="recap", cascade="all, delete-orphan", order_by="RecapFlag.created_at"
+    )
+
+
+class RecapFlag(UUIDPrimaryKey, Timestamped, Base):
+    """A player's "not my character" note on part of a recap (AI-09 → AI-10 input)."""
+
+    __tablename__ = "recap_flags"
+
+    recap_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("character_recaps.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    quote: Mapped[str] = mapped_column(String)
+    note: Mapped[str] = mapped_column(String, default="")
+
+    recap: Mapped[CharacterRecap] = relationship(back_populates="flags")

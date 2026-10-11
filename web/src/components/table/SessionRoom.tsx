@@ -9,7 +9,8 @@
 
 import { useEffect, useState } from "react";
 
-import type { Character, GameSession, MembershipRole } from "@/lib/types";
+import type { Character, GameSession, MembershipRole, Recap } from "@/lib/types";
+import { recapsToReadFirst } from "@/lib/recaps";
 import { useApi } from "@/lib/useApi";
 import { useRoom } from "@/lib/useRoom";
 import { useAuthSession } from "@/lib/auth";
@@ -25,6 +26,7 @@ import Log from "./Log";
 import Presence from "./Presence";
 import SheetPanel from "./SheetPanel";
 import StandInPanel from "./StandInPanel";
+import RecapCard from "../recaps/RecapCard";
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -63,6 +65,9 @@ function SessionRoomContent({ sessionId }: { sessionId: string }) {
   const [myId, setMyId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<MembershipRole | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // AI-09: my unread recaps are shown before the table ("while you were away").
+  const [recaps, setRecaps] = useState<Recap[]>([]);
+  const [recapsDone, setRecapsDone] = useState(false);
 
   useEffect(() => {
     if (!api) return;
@@ -78,6 +83,15 @@ function SessionRoomContent({ sessionId }: { sessionId: string }) {
           api.listCharacters(s.campaign_id),
         ]);
         if (cancelled) return;
+        // A recap failure must not keep anyone from the table; it's logged and skipped.
+        // Bounded: a slow recap request must never hold anyone at "Loading…".
+        Promise.race([
+          api.listRecaps(s.campaign_id),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("recaps timed out")), 8000)),
+        ])
+          .then(r => { if (!cancelled) setRecaps(recapsToReadFirst(r)); })
+          .catch(e => console.error("[boor] could not load recaps", e))
+          .finally(() => { if (!cancelled) setRecapsDone(true); });
         setCharacters(chars);
         setMyId(me.id);
         setMyRole(members.find((m) => m.user_id === me.id)?.role ?? null);
@@ -111,6 +125,25 @@ function SessionRoomContent({ sessionId }: { sessionId: string }) {
   }
 
   const isDm = myRole === "dm";
+
+  // Hold the table until the recap check finishes (no flash of the table first). A
+  // failed check still sets recapsDone, so it never locks anyone out.
+  if (!recapsDone && !loadError) return <p className="p-6 text-sm text-stone-400">Loading your session…</p>;
+
+  if (recapsDone && recaps.length > 0) {
+    return <div className="mx-auto w-full max-w-2xl space-y-4 p-6">
+      <h1 className="text-xl font-semibold text-amber-100">Before you sit down: while you were away…</h1>
+      <p className="text-sm text-stone-400">Your character was played by their AI stand-in last time. Here’s what they did, in their own words.</p>
+      {recaps.map(r => <RecapCard key={r.id} api={api} recap={r} isDm={isDm} theme="table"
+        onChange={updated => setRecaps(prev => prev.map(x => (x.id === updated.id ? updated : x)))} />)}
+      <button className="rounded-lg border border-amber-700/60 bg-amber-950/50 px-4 py-3 text-sm text-amber-100 hover:bg-amber-900/50"
+        onClick={() => {
+          void Promise.allSettled(recaps.filter(r => !r.read).map(r => api.markRecapRead(r.id)))
+            .then(results => results.forEach(x => { if (x.status === "rejected") console.error("[boor] could not mark recap read", x.reason); }));
+          setRecaps([]);
+        }}>I’ve read it. Continue to the table</button>
+    </div>;
+  }
   const connected = room.status === "open";
   const ended = session?.status === "ended" || room.entries.some(e => e.kind === "system" && e.payload.type === "session_ended");
   const writable = connected && !ended;
