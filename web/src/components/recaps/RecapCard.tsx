@@ -36,6 +36,7 @@ export default function RecapCard({ api, recap, isDm, onChange, theme = "campaig
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flagging, setFlagging] = useState(false);
+  const [confirmShare, setConfirmShare] = useState(false);
   const [quote, setQuote] = useState("");
   const [note, setNote] = useState("");
 
@@ -60,13 +61,20 @@ export default function RecapCard({ api, recap, isDm, onChange, theme = "campaig
     <div className="flex flex-wrap gap-2">
       {recap.mine && recap.status === "ready" && !recap.read &&
         <button className={t.button} disabled={busy} onClick={() => run(() => api.markRecapRead(recap.id))}>Mark as read</button>}
-      {recap.mine && recap.status === "ready" && !recap.shared &&
-        <button className={t.button} disabled={busy} onClick={() => run(() => api.shareRecap(recap.id))}>Share with the table</button>}
+      {recap.mine && recap.status === "ready" && !recap.shared && !confirmShare &&
+        <button className={t.button} disabled={busy} onClick={() => setConfirmShare(true)}>Share with the table…</button>}
       {recap.mine && recap.status === "ready" &&
         <button className={t.button} disabled={busy} aria-expanded={flagging} onClick={() => setFlagging(!flagging)}>Not my character…</button>}
       {isDm && recap.status === "failed" &&
         <button className={t.button} disabled={busy} onClick={() => run(() => api.retryRecap(recap.id))}>Retry recap</button>}
     </div>
+    {confirmShare && !recap.shared && <div className="space-y-2" role="group" aria-label="Confirm sharing">
+      <p className={`text-sm ${t.body}`}>Everyone in this campaign will be able to read it, including anything only {recap.character_name} saw or heard. You can’t unshare it yet.</p>
+      <div className="flex flex-wrap gap-2">
+        <button className={t.button} disabled={busy} onClick={async () => { if (await run(() => api.shareRecap(recap.id))) setConfirmShare(false); }}>Yes, share it</button>
+        <button className={t.button} disabled={busy} onClick={() => setConfirmShare(false)}>Keep it private</button>
+      </div>
+    </div>}
     {flagging && <div className="space-y-2">
       <p className={`text-xs ${t.muted}`}>Quote the part that doesn’t sound like your character. The recap stays as it is; your note helps tune your stand-in.</p>
       <input className={t.input} aria-label="Quoted line" maxLength={1000} value={quote} placeholder="Paste the line" onChange={e => setQuote(e.target.value)} />

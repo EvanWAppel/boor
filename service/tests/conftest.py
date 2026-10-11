@@ -269,11 +269,13 @@ def fake_recap_writer(monkeypatch: pytest.MonkeyPatch) -> FakeRecapWriter:
 
     fake = FakeRecapWriter()
 
-    async def _write(_client: Any, ctx: Any) -> str:
+    async def _write(_client: Any, ctx: Any) -> Any:
+        from boor_service.ai.recap import Written
+
         fake.calls.append(ctx)
         if isinstance(fake.result, Exception):
             raise fake.result
-        return fake.result
+        return Written(text=fake.result, model="claude-opus-5")
 
     monkeypatch.setattr(recaps, "get_client", lambda: object())
     monkeypatch.setattr(recaps, "write", _write)

@@ -84,7 +84,11 @@ function SessionRoomContent({ sessionId }: { sessionId: string }) {
         ]);
         if (cancelled) return;
         // A recap failure must not keep anyone from the table; it's logged and skipped.
-        api.listRecaps(s.campaign_id)
+        // Bounded: a slow recap request must never hold anyone at "Loading…".
+        Promise.race([
+          api.listRecaps(s.campaign_id),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("recaps timed out")), 8000)),
+        ])
           .then(r => { if (!cancelled) setRecaps(recapsToReadFirst(r)); })
           .catch(e => console.error("[boor] could not load recaps", e))
           .finally(() => { if (!cancelled) setRecapsDone(true); });

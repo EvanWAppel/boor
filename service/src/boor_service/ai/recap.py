@@ -44,6 +44,13 @@ class RecapError(Exception):
 
 
 @dataclass(frozen=True)
+class Written:
+    text: str
+    #: The model that actually answered (a server-side fallback may differ).
+    model: str
+
+
+@dataclass(frozen=True)
 class RecapContext:
     character_name: str
     persona: str
@@ -63,8 +70,8 @@ def _quoted(text: str) -> str:
 def _prompt(ctx: RecapContext) -> str:
     actions = "\n".join(f"- {_quoted(a)}" for a in ctx.own_actions) or "- (none recorded)"
     return (
-        f"Character: {_quoted(ctx.character_name)}\n"
-        f"Session: {_quoted(ctx.session_title)}\n\n"
+        f"<character>{_quoted(ctx.character_name)}</character>\n"
+        f"<session>{_quoted(ctx.session_title)}</session>\n\n"
         f"<persona>{_quoted(ctx.persona)}</persona>\n"
         f"<instructions>{_quoted(ctx.standing_instructions)}</instructions>\n\n"
         f"Decisions the stand-in made as {_quoted(ctx.character_name)}:\n{actions}\n\n"
@@ -75,7 +82,7 @@ def _prompt(ctx: RecapContext) -> str:
 
 def write_recap(
     client: SupportsBetaMessages, ctx: RecapContext, *, model: str = DEFAULT_MODEL
-) -> str:
+) -> Written:
     """Ask the model for ``ctx.character_name``'s recap; return the validated text."""
     response = client.beta.messages.create(
         model=model,
@@ -108,5 +115,8 @@ def write_recap(
     recap = str(json.loads(texts[-1])["recap"]).strip()
     if not recap or len(recap) > MAX_RECAP:
         raise RecapError("recap is empty or too long")
-    logger.info("recap written for %s (%d chars)", ctx.character_name, len(recap))
-    return recap
+    answered_by = str(getattr(response, "model", None) or model)
+    logger.info(
+        "recap written for %s by %s (%d chars)", ctx.character_name, answered_by, len(recap)
+    )
+    return Written(text=recap, model=answered_by)

@@ -15,18 +15,18 @@ import asyncio
 import logging
 import os
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, cast
 
 import anthropic
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from boor_service.ai.adjudicator import SupportsBetaMessages
-from boor_service.ai.recap import DEFAULT_MODEL, RecapContext, write_recap
+from boor_service.ai.recap import DEFAULT_MODEL, RecapContext, Written, write_recap
 from boor_service.auth.dependencies import CurrentMembership, CurrentUser, SessionDep
 from boor_service.db import repository
 from boor_service.db.models import (
@@ -46,6 +46,10 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 AI_OFF = "AI recaps are not enabled on this table."
+#: A pending recap older than this is presumed lost (restart, crash) and retryable.
+STALE_PENDING = timedelta(minutes=5)
+#: Bound on "not my character" flags per recap.
+MAX_FLAGS = 20
 
 
 def get_client() -> SupportsBetaMessages | None:
@@ -55,7 +59,7 @@ def get_client() -> SupportsBetaMessages | None:
     return cast(SupportsBetaMessages, anthropic.Anthropic(timeout=60, max_retries=0))
 
 
-async def write(client: SupportsBetaMessages, ctx: RecapContext) -> str:
+async def write(client: SupportsBetaMessages, ctx: RecapContext) -> Written:
     model = os.environ.get("RECAP_MODEL", DEFAULT_MODEL)
     return await asyncio.wait_for(
         asyncio.to_thread(write_recap, client, ctx, model=model), timeout=90
@@ -133,10 +137,11 @@ async def generate(sessions: async_sessionmaker, recap_id: uuid.UUID) -> None:
     traceback and recorded on the recap (the DM sees it and can retry) rather than
     lost; a recap is never left silently pending by an error here.
     """
-    body: str | None = None
+    written: Written | None = None
     error = ""
-    client = get_client()
+    client = None
     try:
+        client = get_client()
         async with sessions() as db:
             recap = await db.get(CharacterRecap, recap_id)
             if recap is None:
@@ -146,7 +151,7 @@ async def generate(sessions: async_sessionmaker, recap_id: uuid.UUID) -> None:
         if client is None:
             error = AI_OFF
         else:
-            body = await write(client, ctx)
+            written = await write(client, ctx)
     except Exception as exc:
         logger.exception("writing recap %s failed", recap_id)
         error = f"{type(exc).__name__}: {exc}"[:300]
@@ -154,17 +159,28 @@ async def generate(sessions: async_sessionmaker, recap_id: uuid.UUID) -> None:
         close = getattr(client, "close", None)
         if close is not None:
             close()
+    status = RecapStatus.ready if written is not None else RecapStatus.failed
+    values: dict[str, object] = (
+        {"status": status, "body": written.text, "error": "", "model": written.model}
+        if written is not None
+        else {"status": status, "error": error}
+    )
+    # Only a still-pending recap is written: a finished recap is never rewritten, and
+    # a late or duplicate writer (e.g. after a retry of a stale one) changes nothing.
+    # If this write itself fails, the recap stays pending and becomes retryable once
+    # it is older than STALE_PENDING.
     async with sessions() as db:
-        recap = await db.get(CharacterRecap, recap_id)
-        if recap is None:
-            return
-        if body is not None:
-            recap.status, recap.body, recap.error = RecapStatus.ready, body, ""
-            recap.model = os.environ.get("RECAP_MODEL", DEFAULT_MODEL)
-        else:
-            recap.status, recap.error = RecapStatus.failed, error
+        result = await db.execute(
+            update(CharacterRecap)
+            .where(CharacterRecap.id == recap_id, CharacterRecap.status == RecapStatus.pending)
+            .values(**values)
+            .returning(CharacterRecap.id)
+        )
         await db.commit()
-        logger.info("recap %s is %s", recap_id, recap.status.value)
+    if result.first() is None:
+        logger.info("recap %s was already settled; this result is discarded", recap_id)
+    else:
+        logger.info("recap %s is %s", recap_id, status.value)
 
 
 # --- HTTP ---------------------------------------------------------------------
@@ -283,9 +299,12 @@ async def _recap_in_reach(
 async def _own_recap(
     db: AsyncSession, recap_id: uuid.UUID, user_id: uuid.UUID
 ) -> tuple[CharacterRecap, GameSession, Character, Membership]:
+    """The caller's own, finished recap (player-only actions)."""
     found = await _recap_in_reach(db, recap_id, user_id)
     if found[2].player_id != user_id:
         raise HTTPException(403, "only this character's player can do that")
+    if found[0].status is not RecapStatus.ready:
+        raise HTTPException(409, "this recap isn't finished yet")
     return found
 
 
@@ -301,8 +320,6 @@ async def mark_read(recap_id: uuid.UUID, user: CurrentUser, db: SessionDep) -> R
 async def share(recap_id: uuid.UUID, user: CurrentUser, db: SessionDep) -> RecapOut:
     """Share with the whole table (player only). Logged; there is no un-share yet."""
     recap, game, character, membership = await _own_recap(db, recap_id, user.id)
-    if recap.status is not RecapStatus.ready:
-        raise HTTPException(409, "only a finished recap can be shared")
     if recap.shared_at is None:
         recap.shared_at = datetime.now(UTC)
         logger.info("recap %s shared with the table by %s", recap.id, user.id)
@@ -317,6 +334,8 @@ async def flag(recap_id: uuid.UUID, body: FlagIn, user: CurrentUser, db: Session
     quote = body.quote.strip()
     if not quote:
         raise HTTPException(422, "Quote the part that doesn't sound like your character.")
+    if len(recap.flags) >= MAX_FLAGS:
+        raise HTTPException(409, f"A recap can hold at most {MAX_FLAGS} flags.")
     recap.flags.append(RecapFlag(user_id=user.id, quote=quote, note=body.note.strip()))
     await db.commit()
     await db.refresh(recap, ["flags"])
@@ -332,13 +351,35 @@ async def retry(
     background: BackgroundTasks,
     sessions: Annotated[async_sessionmaker, Depends(get_sessionmaker)],
 ) -> RecapOut:
-    """Write a failed recap again (DM only). A finished recap is never rewritten."""
+    """Write a failed (or stale pending) recap again (DM only).
+
+    A finished recap is never rewritten. The claim is one conditional UPDATE, so two
+    concurrent retries can't both start a write.
+    """
     recap, game, character, membership = await _recap_in_reach(db, recap_id, user.id)
     if membership.role is not MembershipRole.dm:
         raise HTTPException(403, "only the DM can retry a recap")
-    if recap.status is not RecapStatus.failed:
-        raise HTTPException(409, "only a failed recap can be retried")
-    recap.status, recap.error = RecapStatus.pending, ""
+    now = datetime.now(UTC)
+    claimed = await db.execute(
+        update(CharacterRecap)
+        .where(
+            CharacterRecap.id == recap.id,
+            or_(
+                CharacterRecap.status == RecapStatus.failed,
+                and_(
+                    CharacterRecap.status == RecapStatus.pending,
+                    CharacterRecap.attempted_at < now - STALE_PENDING,
+                ),
+            ),
+        )
+        .values(status=RecapStatus.pending, error="", attempted_at=now)
+        .returning(CharacterRecap.id)
+    )
+    if claimed.first() is None:
+        raise HTTPException(409, "only a failed or stuck recap can be retried")
     await db.commit()
+    # Reload explicitly (incl. flags) so _out never triggers a lazy load.
+    await db.refresh(recap, ["status", "error", "attempted_at", "flags"])
+    logger.info("recap %s retry by %s", recap.id, user.id)
     background.add_task(generate, sessions, recap.id)
     return _out(recap, game, character, membership)

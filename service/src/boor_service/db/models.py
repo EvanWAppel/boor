@@ -25,6 +25,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -392,6 +393,11 @@ class CharacterRecap(UUIDPrimaryKey, Timestamped, Base):
     model: Mapped[str] = mapped_column(String, default="")
     shared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: When the current write attempt began; a pending recap older than
+    #: ``recaps.STALE_PENDING`` is presumed lost (e.g. a restart) and may be retried.
+    attempted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     flags: Mapped[list[RecapFlag]] = relationship(
         back_populates="recap", cascade="all, delete-orphan", order_by="RecapFlag.created_at"

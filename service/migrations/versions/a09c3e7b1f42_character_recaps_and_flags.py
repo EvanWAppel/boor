@@ -39,6 +39,10 @@ def upgrade() -> None:
         sa.Column('model', sa.String(), nullable=False),
         sa.Column('shared_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('read_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            'attempted_at', sa.DateTime(timezone=True),
+            server_default=sa.text('now()'), nullable=False,
+        ),
         sa.Column('id', sa.Uuid(), nullable=False),
         sa.Column(
             'created_at', sa.DateTime(timezone=True),

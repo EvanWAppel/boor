@@ -196,3 +196,104 @@ async def test_recaps_fail_visibly_when_ai_is_off(auth_client, mint_token, sessi
     await _end(auth_client, game, dm)
     recap = (await _recaps(auth_client, campaign, dm))[0]
     assert recap["status"] == "failed" and "not enabled" in recap["error"]
+
+
+async def test_another_characters_whisper_never_reaches_the_prompt(
+    auth_client, mint_token, session, fake_recap_writer
+):
+    _campaign, game, _character, dm, _player, _other = await _played_session(
+        auth_client, mint_token, session
+    )
+    game_row = await session.get(GameSession, uuid.UUID(game))
+    await append_event(
+        session,
+        game_session=game_row,
+        kind=EventKind.in_character,
+        body="Whisper meant for someone else",
+        audience=EventAudience.characters,
+        visible_to=[str(uuid.uuid4())],
+    )
+    await session.commit()
+    await _end(auth_client, game, dm)
+    assert "Whisper meant for someone else" not in fake_recap_writer.calls[0].timeline
+
+
+async def test_a_stuck_pending_recap_becomes_retryable_and_ready_text_is_never_rewritten(
+    auth_client, mint_token, session, fake_recap_writer, monkeypatch
+):
+    from datetime import UTC, datetime, timedelta
+
+    from boor_service import recaps as recaps_module
+    from boor_service.db.models import CharacterRecap, RecapStatus
+
+    # Simulate a restart mid-write: the recap is committed pending, never written.
+    monkeypatch.setattr(recaps_module, "generate", _never_runs)
+    campaign, game, _character, dm, player, _other = await _played_session(
+        auth_client, mint_token, session
+    )
+    await _end(auth_client, game, dm)
+    recap = (await _recaps(auth_client, campaign, dm))[0]
+    assert recap["status"] == "pending"
+    # A fresh pending recap may still be in flight: no retry yet.
+    assert (
+        await auth_client.post(f"/recaps/{recap['id']}/retry", headers=_auth(dm))
+    ).status_code == 409
+    row = await session.get(CharacterRecap, uuid.UUID(recap["id"]))
+    row.attempted_at = datetime.now(UTC) - timedelta(minutes=10)
+    await session.commit()
+    monkeypatch.undo()
+    monkeypatch.setattr(recaps_module, "get_client", lambda: object())
+    monkeypatch.setattr(recaps_module, "write", fake_recap_writer_write(fake_recap_writer))
+    assert (
+        await auth_client.post(f"/recaps/{recap['id']}/retry", headers=_auth(dm))
+    ).status_code == 200
+    ready = (await _recaps(auth_client, campaign, player))[0]
+    assert ready["status"] == "ready"
+    # A late writer for the same recap can't overwrite finished text.
+    fake_recap_writer.result = "A different story."
+    await recaps_module.generate(_shared(session), uuid.UUID(recap["id"]))
+    assert (await _recaps(auth_client, campaign, player))[0]["body"] == ready["body"]
+    row = await session.get(CharacterRecap, uuid.UUID(recap["id"]))
+    assert row.status is RecapStatus.ready
+
+
+async def test_only_finished_recaps_can_be_read_or_flagged(
+    auth_client, mint_token, session, monkeypatch
+):
+    from boor_service import recaps as recaps_module
+
+    monkeypatch.setattr(recaps_module, "generate", _never_runs)
+    campaign, game, _character, dm, player, _other = await _played_session(
+        auth_client, mint_token, session
+    )
+    await _end(auth_client, game, dm)
+    recap_id = (await _recaps(auth_client, campaign, player))[0]["id"]
+    for action, body in (("read", None), ("flags", {"quote": "x", "note": ""})):
+        response = await auth_client.post(
+            f"/recaps/{recap_id}/{action}", json=body, headers=_auth(player)
+        )
+        assert response.status_code == 409
+
+
+async def _never_runs(*_args, **_kwargs):
+    return None
+
+
+def fake_recap_writer_write(fake):
+    async def _write(_client, ctx):
+        from boor_service.ai.recap import Written
+
+        fake.calls.append(ctx)
+        return Written(text=fake.result, model="claude-opus-5")
+
+    return _write
+
+
+def _shared(session):
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _maker():
+        yield session
+
+    return _maker
