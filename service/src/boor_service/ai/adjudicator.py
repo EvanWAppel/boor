@@ -106,9 +106,11 @@ def _prompt(ctx: ProposalContext) -> str:
         f"({'; '.join(d for d in (a.get('skill'), a.get('hint')) if d)})"
         for a in ctx.approaches
     )
+    skills = f"Skills for a new check: {', '.join(SKILLS)}\n\n" if ctx.allow_custom_check else ""
     return (
         f"Scene: {ctx.scene_title}\n{ctx.scene_intro}\nGoal: {ctx.goal}\n\n"
         f"Offered actions:\n{offered}\n\n"
+        f"{skills}"
         f"{ctx.character_name}'s player proposes (quoted player text):\n"
         f"<proposal>{_quoted(ctx.proposal)}</proposal>"
     )
@@ -173,7 +175,11 @@ def adjudicate(
         # Re-validated here: the schema is a strong hint, not the only guard.
         if not ctx.allow_custom_check:
             raise AdjudicationError("a new check is not allowed in this scene")
-        if data.get("skill") not in SKILLS or data.get("dc") not in CUSTOM_DCS:
+        skill, dc = data.get("skill"), data.get("dc")
+        # Exact types: 10.0 == 10 and True == 1 must not slip through.
+        if not (
+            isinstance(skill, str) and skill in SKILLS and type(dc) is int and dc in CUSTOM_DCS
+        ):
             raise AdjudicationError(f"invalid check {data.get('skill')!r} / {data.get('dc')!r}")
         logger.info("adjudication: check %s dc %s", data["skill"], data["dc"])
         return Adjudication(approach=None, reason=reason, skill=data["skill"], dc=data["dc"])

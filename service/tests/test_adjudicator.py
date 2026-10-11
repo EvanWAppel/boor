@@ -184,6 +184,8 @@ def test_custom_check_is_offered_only_when_allowed() -> None:
     assert schema["properties"]["decision"]["enum"] == ["run", "check", "decline"]
     assert "animal_handling" in schema["properties"]["skill"]["enum"]
     assert schema["properties"]["dc"]["enum"] == [10, 12, 15, 0]
+    # The skills are listed for the model only where a new check is allowed.
+    assert "animal_handling" in client.beta.messages.calls[0]["messages"][0]["content"]
 
 
 @pytest.mark.parametrize(
@@ -192,6 +194,9 @@ def test_custom_check_is_offered_only_when_allowed() -> None:
         {"decision": "check", "approach": "none", "skill": "flying", "dc": 12, "reason": "x"},
         {"decision": "check", "approach": "none", "skill": "stealth", "dc": 13, "reason": "x"},
         {"decision": "check", "approach": "none", "skill": "none", "dc": 12, "reason": "x"},
+        {"decision": "check", "approach": "none", "skill": "stealth", "dc": 10.0, "reason": "x"},
+        {"decision": "check", "approach": "none", "skill": "stealth", "dc": True, "reason": "x"},
+        {"decision": "check", "approach": "none", "skill": ["stealth"], "dc": 10, "reason": "x"},
     ],
 )
 def test_invalid_custom_check_raises(payload: dict) -> None:
