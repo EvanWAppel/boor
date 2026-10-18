@@ -180,6 +180,23 @@ def test_access_log_redacts_ws_tokens() -> None:
     assert "token=[redacted]&x=1" in message
 
 
+def test_access_log_redacts_invite_tokens_in_path() -> None:
+    # SEC-03: the invite token is a path segment, so uvicorn.access would log it.
+    record = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("1.2.3.4:5", "POST", "/invites/inv_s3cret-T0k/accept", "1.1", 200),
+        None,
+    )
+    assert TokenRedactingFilter().filter(record) is True
+    message = record.getMessage()
+    assert "inv_s3cret-T0k" not in message
+    assert "/invites/[redacted]/accept" in message
+
+
 def test_redaction_is_installed_on_uvicorn_loggers() -> None:
     import boor_service.api  # noqa: F401  (import installs the filter)
 
