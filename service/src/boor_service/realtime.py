@@ -51,13 +51,14 @@ WS_FORBIDDEN = 4403
 WS_NOT_FOUND = 4404
 
 BEARER_SUBPROTOCOL = "bearer"
-# ``token=<jwt>`` in a logged path, and ``bearer, <jwt>`` in the subprotocol header
-# (the websockets library logs handshake headers at DEBUG).
-_TOKEN_IN_LOG = re.compile(r"(token=|bearer,\s*)[^&\s\"',]+", re.IGNORECASE)
+# ``token=<jwt>`` in a logged path, ``bearer, <jwt>`` in the subprotocol header
+# (the websockets library logs handshake headers at DEBUG), and the invite token
+# in ``/invites/<token>/accept`` (SEC-03).
+_TOKEN_IN_LOG = re.compile(r"(token=|bearer,\s*|/invites/)[^&\s\"',/?]+", re.IGNORECASE)
 
 
 class TokenRedactingFilter(logging.Filter):
-    """Blank session tokens in log records (SEC-01).
+    """Blank session and invite tokens in log records (SEC-01, SEC-03).
 
     uvicorn writes the full request path, query string included, for HTTP requests
     (``uvicorn.access``) and WS handshakes (``uvicorn.error``). Installed on both by
