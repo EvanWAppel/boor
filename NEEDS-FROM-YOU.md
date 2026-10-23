@@ -1,18 +1,37 @@
-# Current handoff — 2026-09-26
+# HISTORICAL — superseded by `BLOCKED.md` (2026-10-24)
 
-Railway is provisioned and the live app is running. The historical checklist below
-predates that verification. Current remaining user steps:
+> **This file is a historical record. Do not add to it.** Everything still open
+> that only Evan can resolve now lives in **[`BLOCKED.md`](BLOCKED.md)** (canonical
+> format, mirrored into the todo dashboard); task status lives in
+> **[`TASKS.md`](TASKS.md)**. Items below are ticked where they are done, and each
+> one still open names the `BLOCKED.md` line it moved to.
+>
+> Where the old open items went:
+>
+> | Old item | Status / now in |
+> | --- | --- |
+> | §1 Clerk Production instance | `BLOCKED.md` 🟡 Clerk Production instance |
+> | §2 Railway + Postgres (SETUP-05 / DATA-05) | **Done** 2026-09-26 (TASKS.md SETUP-05) |
+> | §2 Dedicated capped Anthropic key | **Done** 2026-10-01 (`boor` workspace, $50/month cap) |
+> | §2 Object storage for maps | Deferred with VTT-02/03 (D-04); not needed yet |
+> | §3 Invite email delivery (AUTH-02) | `BLOCKED.md` 🟡 Email delivery (recaps + invites) |
+> | §4 CI dummy Clerk key | Not needed: the web build is gated on the publishable key and CI is green without it |
+> | §6 Product decisions (primer §11) | `BLOCKED.md` 🔴 Product/design decisions |
+> | §6 Consequence-tier thresholds (AI-12) | `BLOCKED.md` 🔴 Consequence-tier thresholds |
+> | Handoff: sign in, invite Christine, friends playtest (MILE-1) | `BLOCKED.md` 🔴 Real friends playtest |
+
+## Old handoff — 2026-09-26 (historical)
+
+Railway is provisioned and the live app is running. Remaining user steps at the time
+(all now tracked in `BLOCKED.md`):
 
 1. Sign in at https://web-production-0e6881.up.railway.app/.
 2. Invite Christine to the boor Clerk application, then create a campaign invitation
    for the same email and send her the generated link. See PLAYTEST.md.
 3. Complete the human-DM friends playtest; this is what closes MILE-1.
-4. Confirm a dedicated capped Anthropic workspace key before enabling live AI turns.
+4. ~~Confirm a dedicated capped Anthropic workspace key before enabling live AI turns.~~
+   Done 2026-10-01.
 5. Resolve the product decisions listed in section 6 before building those features.
-
-The table now has reconnect/history recovery, persisted initiative, and the basic
-AI profile/control/turn integration. Local browser checks use disposable accounts
-and a scripted model; they do not replace a real friends/live-model playtest.
 
 ---
 
@@ -40,36 +59,37 @@ the mirrored user (`email` + `display_name`). Config now lives in `service/.env`
 - [x] Session token customized with `email` + `name` claims ← the load-bearing step
 - [x] Invite-only restriction turned on (Access mode → Invite-only; you're an invited user)
 
-Still to do for **production**: a Clerk **Production** instance (own `pk_live_`/
+Still to do for **production** (now `BLOCKED.md` 🟡 Clerk Production instance): a Clerk **Production** instance (own `pk_live_`/
 `sk_live_`, custom domain + DNS) with Steps 1–2 re-applied — see `CLERK-SETUP.md`.
 The current `pk_test_`/`sk_test_` are a development instance (fine for local + Railway
 testing).
 
-## 2. Railway hosting + Postgres (DATA-05, SETUP-05) — `[ ]`  → **full runbook in `DEPLOY.md`**
+## 2. Railway hosting + Postgres (DATA-05, SETUP-05) — `[x]` ✅ DONE 2026-09-26  → **runbook in `DEPLOY.md`**
 
 **Scaffolding is done and locally verified** — Dockerfiles for both services, the
 migration release step, healthchecks, and CORS are all written. Both images
 **build and boot** on my machine (`service` → `/health` ok + a real dice roll +
 `/me` 401; `web` → `/` 200). What's left is the parts only you can do:
 
-- [ ] Create the Railway project and add a **Postgres** plugin.
-- [ ] Add the **service** (root dir `/service`) — `railway.json` auto-runs
+- [x] Create the Railway project and add a **Postgres** plugin.
+- [x] Add the **service** (root dir `/service`) — `railway.json` auto-runs
       `alembic upgrade head` on deploy and healthchecks `/health`. Set vars:
       `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `CLERK_ISSUER`, `CLERK_JWKS_URL`,
       and `CORS_ALLOW_ORIGINS` = the web URL (step below).
-- [ ] Add the **web** (root dir `/web`) — set **build-time** `NEXT_PUBLIC_API_BASE_URL`
+- [x] Add the **web** (root dir `/web`) — set **build-time** `NEXT_PUBLIC_API_BASE_URL`
       (= the service URL) + `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, and **runtime**
       `CLERK_SECRET_KEY`. Deploy service first so you have its URL.
-- [ ] Back-fill the service's `CORS_ALLOW_ORIGINS` with the web domain, redeploy.
-- [ ] Optionally seed a demo table once: `uv run python -m boor_service.db.seed`.
-- ⚠️ **`ANTHROPIC_API_KEY` is NOT needed for MILE-1** (human-DM'd). It's only for
+- [x] Back-fill the service's `CORS_ALLOW_ORIGINS` with the web domain, redeploy.
+- [x] *(optional, not required)* Optionally seed a demo table once: `uv run python -m boor_service.db.seed`.
+- ✅ *(settled 2026-10-01: dedicated `boor` workspace key, $50/month cap, set on Railway `service`.)*
+  ⚠️ **`ANTHROPIC_API_KEY` is NOT needed for MILE-1** (human-DM'd). It's only for
   the AI stand-in and it hits the personal-key guardrail — mint a scoped key in a
   dedicated capped Anthropic workspace before wiring it, never your personal key.
-- [ ] Object storage for maps/assets (VTT) — not needed until maps (post-MILE-1).
+- [ ] Object storage for maps/assets (VTT) — not needed until maps (post-MILE-1); deferred with VTT-02/03 by D-04.
 
 **Every step, with exact values, is in `DEPLOY.md`.**
 
-## 3. Web app ↔ service wiring — partly on me `[~]`
+## 3. Web app ↔ service wiring — `[x]` done (deployed on Railway; invite email → `BLOCKED.md`)
 
 - **Done (no keys needed):** the Clerk-agnostic typed client (`web/src/lib/api.ts`,
   now incl. dice + session endpoints), the session-room WS client
@@ -102,12 +122,12 @@ migration release step, healthchecks, and CORS are all written. Both images
   (§2 Railway) so friends can actually reach it, and optionally invite **email
   delivery** (today the DM copies the link and sends it themselves).
 
-## 4. CI / GitHub (SETUP-03) — mostly on me `[~]`
+## 4. CI / GitHub (SETUP-03) — `[x]` done (`.github/workflows/ci.yml`, no secrets needed)
 
 - I can add a GitHub Actions workflow running lint + typecheck + tests for the
   service (its tests use testcontainers, which works on GitHub-hosted runners with
   Docker) and lint/build for web.
-- [ ] You: nothing required for the service job (no secrets — testcontainers spins
+- [x] You: nothing required for the service job (no secrets — testcontainers spins
       up its own Postgres). The web build may need a dummy `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
       as a CI secret once Clerk is wired; I'll flag the exact value when we get there.
 
@@ -116,7 +136,7 @@ migration release step, healthchecks, and CORS are all written. Both images
 - [x] **D-04 — how minimal is "minimal VTT" for MILE-1?** ✅ RESOLVED —
       theater-of-the-mind (see `DECISIONS.md`). Kept here for the record.
 
-## 6. Decisions from the build primer — `[!]`
+## 6. Decisions from the build primer — `[!]` still open → `BLOCKED.md` 🔴 items
 
 New canonical design docs landed (`build-primer.md` + `the-ninth-toll.md`). They
 confirm the locked architecture and the north-star bet, but raise decisions that

@@ -89,17 +89,32 @@ failures surface loudly.
 
 ## Honest current state
 
+*As of 2026-10-24; [`TASKS.md`](TASKS.md) is the source of truth.*
+
+- **Live:** service, web and Postgres run on Railway, behind an invite-only Clerk
+  (development) instance.
 - **Real and tested:** the 5e SRD rules engine, the AI stand-in slice (guardrails
   → reasoning → adjudication → attribution), the eval harness, and the data layer
-  (users, campaigns, invites, sessions, unified event timeline).
-- **Playable table implemented:** Clerk sign-in, campaigns/invitations, characters,
+  (users, campaigns, invites, characters, sessions, a unified event timeline with
+  per-character knowledge scoping).
+- **Playable table:** Clerk sign-in, campaigns and invitations, characters,
   sessions, realtime chat/dice/presence, and DM initiative. Connections recover
   after drops; initiative and history survive refreshes.
-- **Stand-in table integration implemented:** personality/red-line editing,
-  per-session absence/control restoration, and DM-triggered AI turns with thinking,
-  failure, and attribution feedback. Live model calls require explicit configuration.
-- **Still to validate:** a real friends session and live-model believability. Local
-  browser checks use disposable data and a scripted model. See [PLAYTEST.md](PLAYTEST.md).
+- **Guided adventure (v5):** a shared lobby, then a cart check, a conversation with
+  Mara, a branch-specific second check, a two-enemy fight, and a recap. It has
+  server-authoritative revisions, free-form "try something else" proposals
+  resolved by the host or an opt-in AI guide (as an authored approach or a bounded
+  SRD skill check), and pause/resume.
+- **Stand-in integration:** personality and red-line editing, per-session absence
+  and control restoration, DM-triggered AI turns with thinking, failure and
+  attribution feedback, and per-player post-session recaps in the character's
+  voice (in-app). Every model call logs a structured usage line (tokens, latency),
+  and guided commands log structured outcome lines.
+- **Still to validate:** a real friends session (MILE-1), the two-account guided
+  playtest, and live-model stand-in believability. Stand-in turns are off in
+  production until `ENABLE_STANDINS` is set. Local browser checks use disposable
+  data and a scripted model. See [PLAYTEST.md](PLAYTEST.md); what's waiting on a
+  human is in [`BLOCKED.md`](BLOCKED.md).
 
 The task breakdown and phase plan are in [`TASKS.md`](TASKS.md); the product
 vision in [`prd.md`](prd.md).

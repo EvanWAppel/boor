@@ -101,7 +101,7 @@ De-risk early with a thin prototype before polishing.
       loss above a threshold / betrayal of a PC / anything touching a stated boundary**
       → *deferred*, requiring Regent + table consent (GOV-*). Also §7.2: bias standing
       instructions toward **motives, not vetoes**. *(Thresholds are an open decision —
-      NEEDS-FROM-YOU.md §6.)*
+      BLOCKED.md.)*
 - [ ] MILE-2 — **Milestone:** a session runs with an absent player, AI covers, group is satisfied
 
 ## Phase 2.5 — Governance & session zero (build-primer §6, §8)
@@ -142,7 +142,7 @@ the stand-in works, before the AI-DM phase that makes the Regent load-bearing.
 - [!] CONTENT-02 — Import SRD-compatible published modules into runnable structure.
       **⚠️ CONFLICT: `build-primer.md` §3 forbids an ingestion pipeline for published
       adventure PDFs ("single largest legal risk") and mandates original-only content.
-      Blocked pending your call — see NEEDS-FROM-YOU.md §6.**
+      Blocked pending your call — see BLOCKED.md.**
 - [ ] CONTENT-03 — AI gap-fill generation (NPC / room / encounter on demand)
 - [ ] CONTENT-04 — Content library / reuse across sessions
 
