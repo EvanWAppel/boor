@@ -788,7 +788,8 @@ async def session_ws(
     """Join a game session's shared realtime room.
 
     Authenticate by offering the subprotocols ``bearer, <clerk-jwt>`` (browsers
-    can't set WS headers; the legacy ``?token=`` still works, redacted from logs).
+    can't set WS headers). The legacy ``?token=`` query parameter is rejected
+    (SEC-02) and stays redacted from logs.
     The handshake verifies the token and campaign membership before joining the
     room; see :mod:`boor_service.realtime`.
     """

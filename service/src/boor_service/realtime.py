@@ -7,8 +7,8 @@ offering the WS subprotocols ``bearer, <clerk-jwt>`` (browsers can't set WS
 headers, and a subprotocol keeps the token out of URLs and access logs — SEC-01);
 we echo ``bearer``, verify the token, mirror the user, confirm they're a member of
 the session's campaign, then join them to the room. The older ``?token=`` query
-parameter is still accepted during the web rollout; :class:`TokenRedactingFilter`
-keeps it out of the logs.
+parameter is no longer accepted (SEC-02); :class:`TokenRedactingFilter` still keeps
+it out of the logs in case a stale tab sends one.
 
 The room broadcasts presence (who's here) and relays typed messages to everyone
 present. ``chat`` messages are also appended to the session timeline (DATA-03), so
@@ -62,7 +62,8 @@ class TokenRedactingFilter(logging.Filter):
 
     uvicorn writes the full request path, query string included, for HTTP requests
     (``uvicorn.access``) and WS handshakes (``uvicorn.error``). Installed on both by
-    :func:`install_log_redaction` so a legacy ``?token=`` never lands in the logs.
+    :func:`install_log_redaction` so a stale ``?token=`` (rejected since SEC-02)
+    never lands in the logs.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -97,8 +98,6 @@ def _bearer_token(subprotocols: str | None) -> str | None:
 class WebSocketLike(Protocol):
     """The slice of Starlette's ``WebSocket`` the handler uses (fake-able in tests)."""
 
-    @property
-    def query_params(self) -> Any: ...
     @property
     def headers(self) -> Any: ...
     async def accept(self, subprotocol: str | None = None) -> None: ...
@@ -407,8 +406,8 @@ async def handle_connection(
     header_token = _bearer_token(offered)
     # A browser drops the connection unless we echo one of the offered subprotocols.
     await socket.accept(subprotocol=BEARER_SUBPROTOCOL if header_token else None)
-    token = header_token or socket.query_params.get("token")
-    authorized = await _authorize(socket, session_id, token, db, verifier)
+    # SEC-02: the subprotocol is the only accepted credential; ``?token=`` is ignored.
+    authorized = await _authorize(socket, session_id, header_token, db, verifier)
     if authorized is None:
         return
     user, game_session, presence = authorized
