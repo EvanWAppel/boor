@@ -156,7 +156,7 @@ the stand-in works, before the AI-DM phase that makes the Regent load-bearing.
 
 ## Cross-cutting / ongoing
 
-- [ ] X-01 — Observability + logging (per CLAUDE.md: logging to help AI debug)
+- [~] X-01 — Observability + logging (per CLAUDE.md: logging to help AI debug). **Guided-command slice done** (`boor_service.guided.GuidedCommandLog`): every `POST /sessions/{id}/guided` logs one structured `guided command` line (session/run id, request id, action, submitted revision, scene, phase, outcome accepted/replayed/rejected/error, status, rejection reason, new revision), never tokens or free-form text. Other routes, request tracing and log shipping still TBD.
 - [~] X-02 — AI cost/latency monitoring (AI Gateway usage). **Per-call usage slice done** (`boor_service.ai.usage.track_usage`): every stand-in, adjudicator and recap model call logs one structured `model usage` line (call, answering model, input/output tokens, latency, ok/error), no prompt text. Per-session totals need a `game_sessions` column (migration), so they're aggregated from logs for now; dashboards/alerts still TBD.
 - [ ] X-03 — Trust & safety: red-line enforcement audits; player feedback loop
 - [~] X-04 — Success-metric instrumentation: sessions-saved, believability ratings, retention. **Stand-in believability scorecard exists** (`boor_service.evals`, optional LangSmith tracing). Session/retention metrics still TBD.
