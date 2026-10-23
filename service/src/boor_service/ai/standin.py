@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from boor_service import mechanics
 from boor_service.ai.actions import ActionType, GameState, ProposedAction, SelfRisk
 from boor_service.ai.guardrails import RedLine, Refused, check_action
+from boor_service.ai.usage import track_usage
 from boor_service.character import ABILITIES
 from boor_service.character import Character as CharacterSheet
 from boor_service.db import repository
@@ -180,15 +181,16 @@ def decide_action(
 
     Raises :class:`StandInError` if the model refuses or declines to call a tool.
     """
-    response = client.messages.create(
-        model=model,
-        max_tokens=_MAX_TOKENS,
-        thinking={"type": "adaptive"},
-        system=_system_prompt(context),
-        tools=ACTION_TOOLS,
-        tool_choice={"type": "auto"},
-        messages=[{"role": "user", "content": _turn_prompt(context, timeline_text)}],
-    )
+    with track_usage("standin", model) as usage:
+        response = usage.response = client.messages.create(
+            model=model,
+            max_tokens=_MAX_TOKENS,
+            thinking={"type": "adaptive"},
+            system=_system_prompt(context),
+            tools=ACTION_TOOLS,
+            tool_choice={"type": "auto"},
+            messages=[{"role": "user", "content": _turn_prompt(context, timeline_text)}],
+        )
 
     if getattr(response, "stop_reason", None) == "refusal":
         raise StandInError("model refused to produce a stand-in action")
@@ -517,8 +519,7 @@ async def act_on_turn_for_character(
 def _system_prompt(context: StandInContext) -> str:
     red_lines = "\n".join(f"- {rl.note or rl.kind.value}" for rl in context.red_lines) or "- (none)"
     entities = "\n".join(
-        f"- {e.id}: {e.name} ({e.disposition.value})"
-        for e in context.game_state.entities.values()
+        f"- {e.id}: {e.name} ({e.disposition.value})" for e in context.game_state.entities.values()
     )
     return (
         f"You are playing {context.character_name} in a live Dungeons & Dragons "

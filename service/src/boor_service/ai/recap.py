@@ -15,6 +15,7 @@ import logging
 from dataclasses import dataclass
 
 from boor_service.ai.adjudicator import SupportsBetaMessages
+from boor_service.ai.usage import track_usage
 
 logger = logging.getLogger(__name__)
 
@@ -84,26 +85,27 @@ def write_recap(
     client: SupportsBetaMessages, ctx: RecapContext, *, model: str = DEFAULT_MODEL
 ) -> Written:
     """Ask the model for ``ctx.character_name``'s recap; return the validated text."""
-    response = client.beta.messages.create(
-        model=model,
-        max_tokens=4000,
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",
-        system=SYSTEM,
-        output_config={
-            "effort": "medium",
-            "format": {
-                "type": "json_schema",
-                "schema": {
-                    "type": "object",
-                    "properties": {"recap": {"type": "string"}},
-                    "required": ["recap"],
-                    "additionalProperties": False,
+    with track_usage("recap", model) as usage:
+        response = usage.response = client.beta.messages.create(
+            model=model,
+            max_tokens=4000,
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+            system=SYSTEM,
+            output_config={
+                "effort": "medium",
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {"recap": {"type": "string"}},
+                        "required": ["recap"],
+                        "additionalProperties": False,
+                    },
                 },
             },
-        },
-        messages=[{"role": "user", "content": _prompt(ctx)}],
-    )
+            messages=[{"role": "user", "content": _prompt(ctx)}],
+        )
     if response.stop_reason != "end_turn":
         details = getattr(response, "stop_details", None)
         logger.warning("recap stopped: %s %s", response.stop_reason, details)

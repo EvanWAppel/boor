@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from boor_service.ai.usage import track_usage
 from boor_service.character import SKILLS
 
 logger = logging.getLogger(__name__)
@@ -132,26 +133,27 @@ def adjudicate(
         properties["skill"] = {"type": "string", "enum": [*SKILLS, "none"]}
         properties["dc"] = {"type": "integer", "enum": [*CUSTOM_DCS, 0]}
         system = SYSTEM + CUSTOM_CHECK_RULES
-    response = client.beta.messages.create(
-        model=model,
-        max_tokens=4000,
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",
-        system=system,
-        output_config={
-            "effort": "low",
-            "format": {
-                "type": "json_schema",
-                "schema": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": list(properties),
-                    "additionalProperties": False,
+    with track_usage("adjudicator", model) as usage:
+        response = usage.response = client.beta.messages.create(
+            model=model,
+            max_tokens=4000,
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+            system=system,
+            output_config={
+                "effort": "low",
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": properties,
+                        "required": list(properties),
+                        "additionalProperties": False,
+                    },
                 },
             },
-        },
-        messages=[{"role": "user", "content": _prompt(ctx)}],
-    )
+            messages=[{"role": "user", "content": _prompt(ctx)}],
+        )
     if response.stop_reason != "end_turn":
         details = getattr(response, "stop_details", None)
         logger.warning("adjudication stopped: %s %s", response.stop_reason, details)

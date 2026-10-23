@@ -197,6 +197,7 @@ Persona scores are for *tuning*, not for *blocking* an action.
 | `actions.py` | pure domain types (`ProposedAction`, `GameState`, `Entity`, enums) — no DB, no network |
 | `guardrails.py` | `check_action` — the pure refusal layer |
 | `standin.py` | `decide_action` / `act_on_turn` — model call, tool dispatch, engine adjudication, attribution |
+| `usage.py` | `track_usage` — one structured usage log line per model call (X-02): model, tokens, latency |
 | `../evals/` | scenarios, graders, runner, scorecard, optional tracing |
 
 Tests: `tests/test_guardrails.py`, `tests/test_standin.py`, `tests/test_evals.py`
