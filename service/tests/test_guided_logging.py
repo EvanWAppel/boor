@@ -22,11 +22,12 @@ LOGGER = "boor_service.guided"
 
 
 def _records(caplog: pytest.LogCaptureFixture) -> list[GuidedCommandLog]:
-    return [
-        r.guided_command  # type: ignore[attr-defined]
-        for r in caplog.records
-        if r.name == LOGGER and hasattr(r, "guided_command")
-    ]
+    out: list[GuidedCommandLog] = []
+    for r in caplog.records:
+        rec = getattr(r, "guided_command", None)
+        if r.name == LOGGER and isinstance(rec, GuidedCommandLog):
+            out.append(rec)
+    return out
 
 
 async def test_accepted_command_logs_one_record_without_text_or_token(

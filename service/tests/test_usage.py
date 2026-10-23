@@ -41,7 +41,12 @@ def _usage(inp: int, out: int) -> SimpleNamespace:
 
 
 def _records(caplog: pytest.LogCaptureFixture) -> list[ModelUsage]:
-    return [r.model_usage for r in caplog.records if r.name == USAGE_LOGGER]  # type: ignore[attr-defined]
+    out: list[ModelUsage] = []
+    for r in caplog.records:
+        rec = getattr(r, "model_usage", None)
+        if r.name == USAGE_LOGGER and isinstance(rec, ModelUsage):
+            out.append(rec)
+    return out
 
 
 # --- stand-in ----------------------------------------------------------------
