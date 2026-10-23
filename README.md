@@ -43,6 +43,24 @@ rolls. Runs offline with a scripted reasoner (zero setup); set
 `ANTHROPIC_API_KEY` to drive it with the live model. Either way the guardrail and
 rules engine are the real ones.
 
+## Run the whole app locally
+
+```bash
+scripts/dev.sh            # service on :8000 (uvicorn --reload) + web on :3000 (pnpm dev)
+scripts/dev.sh --print    # show the commands without running them
+```
+
+One Ctrl-C stops both, and if either process exits the other is stopped too.
+Run `uv sync` in `service/` and `pnpm install` in `web/` first. Check it with
+`curl localhost:8000/health` and `curl -I localhost:3000`.
+
+Env files are passed by path and never read by the script. The service gets
+`service/.env` through `uvicorn --env-file` when that file exists (set
+`BOOR_SERVICE_ENV_FILE` to use another path), and Next.js loads `web/.env.local`
+on its own. `SERVICE_PORT` and `WEB_PORT` override the ports. Without a
+`DATABASE_URL` the service still answers `/health` and the rules routes; the
+data-backed routes need Postgres.
+
 ## How the agent is built
 
 Three responsibilities, three components, no overlap:
