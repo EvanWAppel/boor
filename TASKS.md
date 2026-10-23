@@ -17,20 +17,21 @@ See [GUIDED-PLAY-PLAN.md](GUIDED-PLAY-PLAN.md) for the longer roadmap.
 - [~] GUIDE-02 — Playtest with Evan and Evil Evan using PLAYTEST.md; collect where the next action is unclear. **First pass 2026-10-10 (v5, live, AI guide on):** progressing well. Feedback: on a wide browser the text ran edge to edge, and the screen had too much to take in at once → **GUIDE-LAYOUT** below.
 - [~] GUIDE-LAYOUT — Desktop reading layout for the table: centered, width-capped (`max-w-6xl`); what you act on (scene + tools) in a left column, the running story log + composer on the right; each column scrolls on its own. Narrow windows stack scene → log → tools. Phone UI deliberately out of scope for now.
 - [x] SEC-01 — WS session token moved from the `?token=` query string to the `Sec-WebSocket-Protocol` header (`bearer, <jwt>`), and a filter on uvicorn's loggers redacts `token=` / `bearer,` values (PRs #17/#18, 2026-10-10). Verified on Railway: no raw tokens in the service logs after the deploy.
-- [ ] SEC-02 — Remove the legacy `?token=` WS fallback in `realtime.handle_connection` once the subprotocol client has been live a while (old tabs + Railway edge logs may still carry query strings).
+- [x] SEC-02 — Removed the legacy `?token=` WS fallback in `realtime.handle_connection` (2026-10-24): the `bearer, <jwt>` subprotocol is the only accepted credential, and a query-string token now closes with 4401 (`test_query_string_token_is_rejected`). The log redaction filter stays, since stale tabs may still send `?token=`.
 - [~] SEC-03 — *(low)* Invite tokens sit in URL paths (`/invites/{token}/accept`, `/invite/[token]`) and so in access logs. Invites are single-use and can expire; consider redacting the path segment. **Service side done:** `TokenRedactingFilter` now blanks the `/invites/<token>` segment in uvicorn logs. **Still open:** the web page `/invite/[token]` is logged by Next.js / the Railway edge, which the service filter can't reach — fixing that means moving the token out of the path (e.g. a URL fragment), which changes invite links already sent.
 - [x] GUIDE-LOBBY — Shared character-selection lobby, explicit readiness, spectators, host start, absent/rejoin controls, and version-one compatibility.
 - [x] GUIDE-TALK — Outcome-aware conversation with Mara, three shared questions without dice, a persisted party destination and ending, and v1/v2 compatibility.
 - [x] GUIDE-COMBAT — Optional bounded sparring: rolled initiative, owned turns, practice HP, strike/dodge/withdraw, automatic opponent, five-round limit, host stop, replay and duplicate-turn protection. No campaign HP or inventory mutation.
 - [~] GUIDE-03 — Expand into the 20–30 minute adventure. **Data-driven scene graph landed (v5, `guided_scenes.py`):** cart check → Mara conversation → a branch-specific second check (town gate: Persuasion/Insight · river landing: Perception/Stealth) → a real two-enemy fight with target selection → recap. `guided_combat` generalized to an authored enemy roster + targeting (Mara sparring path unchanged); v1–v4 runs dispatch to the legacy machine untouched and new runs start at v5. Non-lethal, encounter-scoped combat; DCs stay visible; sparring dropped from v5. Service ruff/ty/pytest green (v1–v5); web lint/build/tests green. **Custom "try something else" landed (v5):** a playing character submits a free-form proposal; the host either maps it to an authored approach (the proposer then rolls) or declines with a recorded reason — the text is always persisted in the log and never silently resolved; normal approaches are blocked while a proposal is open. **Pause/resume landed (v5):** any seated person pauses instantly (no vote); the pauser or host resumes; game actions freeze but chat stays open; optional note after pausing; scene state is held across refresh. **AI guide for proposals landed (v5, opt-in `ENABLE_AI_ADJUDICATION=1`):** after a proposal is saved, a background model call maps it to an authored approach or declines with a reason, labelled "AI guide"; the host can answer first and wins; on failure, pause, or AI off, the proposal stays open for the host. **"Try something else" in the conversation and the fight (2026-10-10):** in the Mara conversation an idea maps only to an unasked question (the destination stays an explicit choice); in the fight only the active character may propose, mapping to Strike <target> / Dodge / Withdraw or a decline that keeps their turn; the AI guide judges both. **Free-form ideas as bounded checks (2026-10-10):** in check scenes, an idea that fits no offered approach can run as its own check — any SRD skill at Easy 10 / Medium 12 / Hard 15, chosen by the AI guide or the host — resolved against the scene's authored outcome. **Still planned:** the rest of the two-account playtest (GUIDE-02).
+- [x] GUIDE-TESTS — Guided gap tests (2026-10-24, `service/tests/test_guided_gaps.py`): two accounts racing on one revision in v5 (competing approaches; a roll racing the host's cancel) each settle with one winner and one revision bump; an AI-guide decision that lands after the session ended or after the scene moved on is dropped without writing anything; a reconnect (fresh GET) mid-check recovers the pending roll and its owner, and mid-fight recovers the turn so play continues from the recovered revision. No bugs surfaced; mutation-checked the late-AI guards in `guided_ai.apply_decision`.
 
 ## Phase 0 — Foundations
 
 ### Repo & tooling
 - [x] SETUP-01 — Next.js (App Router) web app scaffolded in `boor/web` (TS + Tailwind + ESLint, pnpm; build + lint green)
 - [x] SETUP-02 — Scaffold Python AI/game service in `boor/service` (uv, pytest, ruff, ty; FastAPI `boor_service.api` exposes dice/checks/saves/combat over HTTP, 15 tests green)
-- [x] SETUP-03 — CI wired (`.github/workflows/ci.yml`): **service** job runs ruff + ty + pytest via `uv` (testcontainers uses the runner's Docker; no service container needed); **web** job runs `pnpm lint` + `pnpm build`. Both green locally; triggers on push (main/`data-layer-foundations`) + PRs, with in-progress-run cancellation.
-- [~] SETUP-04 — Local dev harness: run web + service together; env/secrets handling. **Web→service client landed**: Clerk-agnostic typed API client (`web/src/lib/api.ts`) + session-room WS client (`web/src/lib/ws.ts`) + `web/.env.local.example`. **One-command web+service runner still TBD.**
+- [x] SETUP-03 — CI wired (`.github/workflows/ci.yml`): **service** job runs ruff + ty (`src/` + `tests/`) + pytest via `uv` (testcontainers uses the runner's Docker; no service container needed); **web** job runs `pnpm lint` + `pnpm build`. Both green locally; triggers on push to main + PRs, with in-progress-run cancellation.
+- [x] SETUP-04 — Local dev harness: run web + service together; env/secrets handling. **Web→service client landed**: Clerk-agnostic typed API client (`web/src/lib/api.ts`) + session-room WS client (`web/src/lib/ws.ts`) + `web/.env.local.example`. **One-command runner** (2026-10-24): `scripts/dev.sh` starts uvicorn `--reload` + `pnpm dev`, and one Ctrl-C stops both. Env files are passed by path only (`--env-file service/.env`, while Next loads `web/.env.local` itself). Tested in `service/tests/test_dev_script.py`, documented in README.
 - [x] SETUP-05 — Railway service + web + Postgres deployed and healthchecked (2026-09-26). Fixed unsupported Docker cache mounts, URL schemes, migrations, and healthcheck settings. See DEPLOY.md / PLAYTEST.md.
 
 ### Data model & persistence
@@ -100,7 +101,7 @@ De-risk early with a thin prototype before polishing.
       loss above a threshold / betrayal of a PC / anything touching a stated boundary**
       → *deferred*, requiring Regent + table consent (GOV-*). Also §7.2: bias standing
       instructions toward **motives, not vetoes**. *(Thresholds are an open decision —
-      NEEDS-FROM-YOU.md §6.)*
+      BLOCKED.md.)*
 - [ ] MILE-2 — **Milestone:** a session runs with an absent player, AI covers, group is satisfied
 
 ## Phase 2.5 — Governance & session zero (build-primer §6, §8)
@@ -141,7 +142,7 @@ the stand-in works, before the AI-DM phase that makes the Regent load-bearing.
 - [!] CONTENT-02 — Import SRD-compatible published modules into runnable structure.
       **⚠️ CONFLICT: `build-primer.md` §3 forbids an ingestion pipeline for published
       adventure PDFs ("single largest legal risk") and mandates original-only content.
-      Blocked pending your call — see NEEDS-FROM-YOU.md §6.**
+      Blocked pending your call — see BLOCKED.md.**
 - [ ] CONTENT-03 — AI gap-fill generation (NPC / room / encounter on demand)
 - [ ] CONTENT-04 — Content library / reuse across sessions
 
@@ -155,8 +156,8 @@ the stand-in works, before the AI-DM phase that makes the Regent load-bearing.
 
 ## Cross-cutting / ongoing
 
-- [ ] X-01 — Observability + logging (per CLAUDE.md: logging to help AI debug)
-- [ ] X-02 — AI cost/latency monitoring (AI Gateway usage)
+- [~] X-01 — Observability + logging (per CLAUDE.md: logging to help AI debug). **Guided-command slice done** (`boor_service.guided.GuidedCommandLog`): every `POST /sessions/{id}/guided` logs one structured `guided command` line (session/run id, request id, action, submitted revision, scene, phase, outcome accepted/replayed/rejected/error, status, rejection reason, new revision), never tokens or free-form text. Other routes, request tracing and log shipping still TBD.
+- [~] X-02 — AI cost/latency monitoring (AI Gateway usage). **Per-call usage slice done** (`boor_service.ai.usage.track_usage`): every stand-in, adjudicator and recap model call logs one structured `model usage` line (call, answering model, input/output tokens, latency, ok/error), no prompt text. Per-session totals need a `game_sessions` column (migration), so they're aggregated from logs for now; dashboards/alerts still TBD.
 - [ ] X-03 — Trust & safety: red-line enforcement audits; player feedback loop
 - [~] X-04 — Success-metric instrumentation: sessions-saved, believability ratings, retention. **Stand-in believability scorecard exists** (`boor_service.evals`, optional LangSmith tracing). Session/retention metrics still TBD.
 

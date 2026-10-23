@@ -9,7 +9,9 @@ optional AI guide (``guided_ai``) only chooses among authored approaches.
 from __future__ import annotations
 
 import copy
+import logging
 import uuid
+from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -40,6 +42,7 @@ from boor_service.guided_story import (
 from boor_service.mechanics import ability_check
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 TYPE = "guided_cart_v5"
 EVENT_TYPES = {
     1: "guided_cart_v1",
@@ -144,6 +147,54 @@ async def read_guided(game_session: GameSessionForMember, session: SessionDep) -
     return {"state": await latest_state(session, game_session.id), "status": game_session.status}
 
 
+OutcomeKind = Literal["accepted", "replayed", "rejected", "error"]
+
+
+@dataclass(frozen=True)
+class GuidedCommandLog:
+    """X-01: the structured record logged once per guided command.
+
+    Identifiers and authored server strings only: never a bearer token, never the
+    command's free-form ``text`` (proposals, decline reasons, pause notes).
+    """
+
+    #: The run: the game session the command was sent to.
+    session_id: str
+    request_id: str
+    action: str
+    #: The revision the client submitted against.
+    revision: int
+    #: v5 scene id and phase the command saw (``None`` before the run starts).
+    scene: str | None
+    phase: str | None
+    outcome: OutcomeKind
+    status: int
+    #: The rejection's user-facing reason (an authored server message).
+    reason: str | None = None
+    #: The snapshot revision after an accepted command.
+    new_revision: int | None = None
+
+
+def _log_command(record: GuidedCommandLog) -> None:
+    level = logging.WARNING if record.outcome == "error" else logging.INFO
+    logger.log(
+        level,
+        "guided command session_id=%s request_id=%s action=%s revision=%s scene=%s "
+        "phase=%s outcome=%s status=%s new_revision=%s reason=%r",
+        record.session_id,
+        record.request_id,
+        record.action,
+        record.revision,
+        record.scene,
+        record.phase,
+        record.outcome,
+        record.status,
+        record.new_revision,
+        record.reason,
+        extra={"guided_command": record},
+    )
+
+
 @router.post("/sessions/{session_id}/guided")
 async def command_guided(
     body: Command,
@@ -153,6 +204,50 @@ async def command_guided(
     background: BackgroundTasks,
     sessions: Annotated[async_sessionmaker, Depends(get_sessionmaker)],
 ) -> dict:
+    """Apply one guided command and log exactly one :class:`GuidedCommandLog` for it."""
+    ctx: dict[str, Any] = {}
+
+    def log(outcome: OutcomeKind, status: int, **fields: Any) -> None:
+        _log_command(
+            GuidedCommandLog(
+                session_id=str(game_session.id),
+                request_id=str(body.request_id),
+                action=body.action,
+                revision=body.revision,
+                scene=ctx.get("scene"),
+                phase=ctx.get("phase"),
+                outcome=outcome,
+                status=status,
+                reason=fields.get("reason"),
+                new_revision=fields.get("new_revision"),
+            )
+        )
+
+    try:
+        result = await _apply_command(body, game_session, user, session, background, sessions, ctx)
+    except HTTPException as exc:
+        log("rejected", exc.status_code, reason=str(exc.detail))
+        raise
+    except Exception as exc:
+        log("error", 500, reason=type(exc).__name__)
+        raise
+    if ctx.get("replayed"):
+        log("replayed", 200)
+    else:
+        log("accepted", 200, new_revision=(result.get("state") or {}).get("revision"))
+    return result
+
+
+async def _apply_command(
+    body: Command,
+    game_session: GameSession,
+    user: Any,
+    session: AsyncSession,
+    background: BackgroundTasks,
+    sessions: async_sessionmaker,
+    ctx: dict[str, Any],
+) -> dict:
+    """The command itself. Fills ``ctx`` (scene, phase, replayed) for the log record."""
     await session.execute(
         select(GameSession.id).where(GameSession.id == game_session.id).with_for_update()
     )
@@ -176,8 +271,11 @@ async def command_guided(
             body.model_dump(mode="json", exclude_none=True)
         ):
             raise HTTPException(409, "This request ID was already used for a different action.")
+        ctx["replayed"] = True
         return {"state": await latest_state(session, game_session.id)}
     state: dict[str, Any] | None = await latest_state(session, game_session.id)
+    if state:
+        ctx.update(scene=state.get("scene"), phase=state.get("phase"))
     if body.revision != (state["revision"] if state else 0):
         raise HTTPException(409, "The table has moved on. Review the current step and try again.")
     uid = str(user.id)

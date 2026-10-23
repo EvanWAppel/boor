@@ -1,0 +1,39 @@
+# Drafted by the 2026-10-24 weekend prep session on 2026-10-22 from the code + docs
+# (PLAT-REG-01). Not yet verified in boor's own session. Format: _system/docs/project-toml.md
+
+[project]
+name = "boor"
+group = "portfolio/games"
+kind = "app"
+status = "active"
+repo = "EvanWAppel/boor"
+visibility = "public"         # gh repo view, 2026-10-22
+on_site = true                # enki data/projects.ts id "boor" (featured)
+verified = false
+
+[deploy]
+host = "railway"
+services = ["service", "web"] # one Railway project + Postgres plugin; see DEPLOY.md
+domain = ""                   # no custom domain; web origin is web-production-0e6881.up.railway.app
+origin_urls_closed = false    # the *.up.railway.app origins are the live URLs
+
+[auth]
+scheme = "clerk"              # Clerk dev instance (pk_test_), invite-only access mode
+access_list = "clerk:invite-only allowlist (Clerk dashboard) + table:memberships"
+target = "unknown"            # Clerk production instance + custom domain is pending (CLERK-SETUP.md)
+
+[data]
+db = "railway-postgres"
+
+[demo]
+status = "none"               # offline scripted demo only (uv run python -m boor_service.demo); no public live demo
+url = ""
+path = ""
+
+[keys]
+paid = ["anthropic"]          # ANTHROPIC_API_KEY on the Railway service (AI guide; stand-ins/recaps gated by ENABLE_STANDINS)
+isolated = "yes"              # dedicated "boor" Anthropic workspace key, Evan confirmed 2026-10-01 (BLOCKED.md)
+spend_cap = "yes"             # $50/month workspace cap + $20 email alert
+
+[platform]
+done = []

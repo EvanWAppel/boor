@@ -54,8 +54,16 @@ class FakeWebSocket:
         token: str | None,
         incoming: list[Any] | None = None,
         subprotocols: str | None = None,
+        query_token: str | None = None,
     ) -> None:
-        self.query_params: dict[str, str] = {"token": token} if token is not None else {}
+        # ``token`` is offered the way the browser does it: as the ``bearer, <jwt>``
+        # subprotocol (SEC-01). ``query_token`` simulates the retired ``?token=``
+        # fallback (SEC-02), which the service must now ignore.
+        if subprotocols is None and token is not None:
+            subprotocols = f"bearer, {token}"
+        self.query_params: dict[str, str] = (
+            {"token": query_token} if query_token is not None else {}
+        )
         self.headers: dict[str, str] = (
             {"sec-websocket-protocol": subprotocols} if subprotocols is not None else {}
         )
@@ -123,29 +131,48 @@ async def test_bearer_subprotocol_without_a_token_closes_unauthorized(
     assert ws.close_code == WS_UNAUTHORIZED
 
 
+async def test_query_string_token_is_rejected(
+    session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
+) -> None:
+    # SEC-02: the legacy ``?token=`` fallback is gone. A perfectly valid token in
+    # the query string (no subprotocol) must not authenticate.
+    _user, session_id = await _member_session(session, clerk_id="clerk_qs", email="qs@x.com")
+    ws = FakeWebSocket(token=None, query_token=mint_token(sub="clerk_qs", email="qs@x.com"))
+    hub = SessionHub()
+    await handle_connection(ws, session_id, session, clerk_verifier, hub)
+    assert ws.close_code == WS_UNAUTHORIZED
+    assert ws.subprotocol is None
+    assert hub.roster(session_id) == []
+    assert ws.sent == []
+
+
 async def test_header_token_wins_over_query_token(
     session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
 ) -> None:
     # A bad header token must not fall back to a valid query token.
     _user, session_id = await _member_session(session, clerk_id="clerk_pr", email="pr@x.com")
     ws = FakeWebSocket(
-        token=mint_token(sub="clerk_pr", email="pr@x.com"),
+        token=None,
+        query_token=mint_token(sub="clerk_pr", email="pr@x.com"),
         subprotocols=f"bearer, {mint_token(exp_delta=-3600)}",
     )
     await handle_connection(ws, session_id, session, clerk_verifier, SessionHub())
     assert ws.close_code == WS_UNAUTHORIZED
 
 
-async def test_malformed_subprotocol_falls_back_to_query_without_echo(
+async def test_malformed_subprotocol_does_not_fall_back_to_query(
     session: AsyncSession, clerk_verifier: ClerkVerifier, mint_token: TokenFactory
 ) -> None:
+    # SEC-02: a malformed offer is not echoed, and a valid ``?token=`` no longer rescues it.
     _user, session_id = await _member_session(session, clerk_id="clerk_mf", email="mf@x.com")
     ws = FakeWebSocket(
-        token=mint_token(sub="clerk_mf", email="mf@x.com"), subprotocols="bearer, a, b"
+        token=None,
+        query_token=mint_token(sub="clerk_mf", email="mf@x.com"),
+        subprotocols="bearer, a, b",
     )
     await handle_connection(ws, session_id, session, clerk_verifier, SessionHub())
     assert ws.subprotocol is None
-    assert ws.close_code is None
+    assert ws.close_code == WS_UNAUTHORIZED
 
 
 def test_debug_header_logs_redact_bearer_tokens() -> None:

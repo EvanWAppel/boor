@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, data-layer-foundations]
+    branches: [main]
   pull_request:
 
 # Cancel superseded runs on the same ref.
@@ -27,7 +27,7 @@ jobs:
       # GitHub-hosted ubuntu runners provide — no service container needed.
       - run: uv sync --dev
       - run: uv run ruff check src/ tests/
-      - run: uv run ty check src/
+      - run: uv run ty check src/ tests/
       - run: uv run pytest
 
   web:
