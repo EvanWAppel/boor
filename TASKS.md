@@ -176,3 +176,36 @@ See **`DECISIONS.md`** for full context on each.
 **Locked architecture (2026-08-14):** single Railway project — Next.js (Node) +
 FastAPI service + Railway Postgres, co-located; Vercel dropped. Service owns all
 data; Next.js is pure UI over HTTP/WS. Realtime = self-hosted WS. Auth = Clerk.
+
+## Platform (handed off from _system)
+
+Tasks handed to this repo by `~/Documents/_system` (see its `CLAUDE.md`). Do them here, in
+this project's own session. When one is done, note it in `DECISIONS.md` if it involved a trade-off.
+
+- [ ] **PLAT-DEMO-01 — Public demo at `boor-demo.evanappel.me`** _(handed off 2026-10-25)_
+  - **Why:** _system D-031/D-032 (Evan, 2026-10-25): every app gets a public demo anyone can use
+    without logging in. Shape: **hostname mode**, like homestar: the same deploy serves the demo when
+    the request's host is `boor-demo.evanappel.me`.
+  - **What exists to build on:** `service/src/boor_service/db/seed.py` (builds a demo campaign through the real invite flow) and the
+    offline scripted demo (`demo.py`).
+  - **Rules (all must hold):**
+    1. Demo mode can only *lower* privilege. It never reads or writes the real database/store, real
+       users, or any integration that sends mail or spends money. A spoofed `Host` header against the
+       real deploy can reach the demo and nothing more.
+    2. The real hostname keeps today's login, unchanged.
+    3. **Data:** a seeded guided-play campaign owned by a synthetic guest user, kept apart from real campaigns (its
+       own schema or DB), reset on a schedule. No real emails anywhere in it.
+    4. **AI:** fake/scripted responses only on the demo host: `ENABLE_AI_ADJUDICATION`, `ENABLE_STANDINS` and
+       recaps act as off for demo requests, whatever the env says. No Anthropic calls.
+    5. **Writes:** allowed inside the guest's demo campaign only; Clerk is bypassed only for that synthetic user on
+       the demo host.
+    6. A local switch (env var) turns demo mode on for development; it is off by default.
+  - **Tests first:** demo host → no login, demo data only, no connection to the real DB; real host →
+    login required exactly as before; demo host never triggers a paid API call or outbound email.
+  - **Note:** boor has no custom domain yet (Clerk production is pending). The demo hostname doesn't
+    need Clerk; flag in `BLOCKED.md` if it turns out it does.
+  - **Not in this task:** DNS, the Cloudflare Access bypass app, and the Railway/Vercel custom
+    domain. _system does those with its Cloudflare token once this merges. Don't touch the deploy.
+  - **Done when:** tests green, merged via PR. In `project.toml`: `[demo] status = "planned"`,
+    `url = "https://boor-demo.evanappel.me"`, and `"PLAT-DEMO-01"` in `[platform] done`. Then tell Evan, who tells
+    _system to wire the hostname; _system flips `status` to `"live"` after a curl check.
