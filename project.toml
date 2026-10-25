@@ -26,7 +26,7 @@ target = "unknown"            # Clerk production instance + custom domain is pen
 db = "railway-postgres"
 
 [demo]
-status = "planned"            # PLAT-DEMO-01 built (hostname mode); _system wires DNS, then flips to "live"
+status = "live"            # 2026-10-25: wired by _system (Cloudflare-proxied CNAME (Railway cert hit the Let's Encrypt rate limit)); curl-checked
 url = "https://boor-demo.evanappel.me"
 path = ""
 
