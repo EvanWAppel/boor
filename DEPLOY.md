@@ -86,6 +86,31 @@ time. So: **deploy `service` first, copy its public domain, then build `web`.**
 
 ---
 
+## Public demo (`boor-demo.evanappel.me`, PLAT-DEMO-01)
+
+The same deploy serves a sign-in-free demo. **Nothing to configure for the defaults:**
+
+- **web:** when the request host (`X-Forwarded-Host`, else `Host`) is
+  `boor-demo.evanappel.me`, Clerk is skipped and each browser plays as a guest
+  (`Bearer demo.<id>`, id kept in localStorage). Point the demo hostname at `web` only.
+- **service:** a request whose `Origin` is `https://boor-demo.evanappel.me` is a demo
+  request: guest tokens only (Clerk never consulted), data in the `boor_demo` schema
+  (never the real tables), AI guide/stand-ins/recaps off whatever the env says, no new
+  campaigns or invites. That origin is always allowed by CORS. The service needs no
+  hostname of its own.
+- The demo schema is created on the first demo request (no DB change before then),
+  and wiped every 24h and on restart.
+
+Optional overrides: `DEMO_HOSTNAMES` (web) / `DEMO_ORIGINS` (service), both
+comma-separated; `DEMO_DATABASE_URL` (service; default: `DATABASE_URL`'s server,
+`boor_demo` schema); `DEMO_RESET_HOURS` (24); `DEMO_MAX_GUESTS` (500).
+
+**Local:** `BOOR_DEMO=1` on both `web` and `service` makes every request a demo request
+(off by default). Smoke check once wired: `curl -s https://boor-demo.evanappel.me/ | grep
+"private sandbox"`, and `curl -s -H "Origin: https://boor-demo.evanappel.me" -H
+"Authorization: Bearer demo.$(openssl rand -hex 16)" https://<service-domain>/me` returns
+a `@demo.invalid` guest.
+
 ## Clerk: test vs. production
 
 The current keys are a Clerk **development** instance (`pk_test_`/`sk_test_`), which

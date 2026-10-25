@@ -25,6 +25,7 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
+from boor_service import demo_mode
 from boor_service.ai.adjudicator import SupportsBetaMessages
 from boor_service.ai.recap import DEFAULT_MODEL, RecapContext, Written, write_recap
 from boor_service.auth.dependencies import CurrentMembership, CurrentUser, SessionDep
@@ -53,7 +54,12 @@ MAX_FLAGS = 20
 
 
 def get_client() -> SupportsBetaMessages | None:
-    """The model client, or ``None`` when stand-ins (and so recaps) are not enabled."""
+    """The model client, or ``None`` when stand-ins (and so recaps) are not enabled.
+
+    Always ``None`` on a demo request (PLAT-DEMO-01).
+    """
+    if demo_mode.active():
+        return None
     if os.environ.get("ENABLE_STANDINS") != "1" or not os.environ.get("ANTHROPIC_API_KEY"):
         return None
     return cast(SupportsBetaMessages, anthropic.Anthropic(timeout=60, max_retries=0))

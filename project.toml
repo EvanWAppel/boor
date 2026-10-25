@@ -26,8 +26,8 @@ target = "unknown"            # Clerk production instance + custom domain is pen
 db = "railway-postgres"
 
 [demo]
-status = "none"               # offline scripted demo only (uv run python -m boor_service.demo); no public live demo
-url = ""
+status = "planned"            # PLAT-DEMO-01 built (hostname mode); _system wires DNS, then flips to "live"
+url = "https://boor-demo.evanappel.me"
 path = ""
 
 [keys]
@@ -36,4 +36,4 @@ isolated = "yes"              # dedicated "boor" Anthropic workspace key, Evan c
 spend_cap = "yes"             # $50/month workspace cap + $20 email alert
 
 [platform]
-done = []
+done = ["PLAT-DEMO-01"]

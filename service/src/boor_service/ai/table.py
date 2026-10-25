@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from boor_service import realtime
+from boor_service import demo_mode, realtime
 from boor_service.ai.actions import Disposition, Entity, GameState
 from boor_service.ai.standin import (
     DEFAULT_MODEL,
@@ -44,6 +44,8 @@ _busy: set[uuid.UUID] = set()
 
 
 def get_standin_client() -> Iterator[SupportsMessages]:
+    if demo_mode.active():
+        raise HTTPException(503, "AI turns are off in the demo.")
     if os.environ.get("ENABLE_STANDINS") != "1" or not os.environ.get("ANTHROPIC_API_KEY"):
         raise HTTPException(503, "AI turns are not enabled on this table yet.")
     with anthropic.Anthropic(timeout=20, max_retries=0) as client:

@@ -5,13 +5,25 @@
 //
 // Guarded on the publishable key so a build with Clerk unconfigured (CI, which runs
 // `pnpm build` without keys) is a pass-through no-op — mirroring the dev-token seam
-// in src/lib/auth.ts, which promises "CI stays green without a Clerk publishable key."
+// in src/lib/auth.tsx, which promises "CI stays green without a Clerk publishable key."
+//
+// The public demo host (PLAT-DEMO-01) skips Clerk entirely: it has no sign-in, and
+// the service only ever serves it sandboxed guest data.
 import { clerkMiddleware } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 
-export default process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-  ? clerkMiddleware()
-  : () => NextResponse.next();
+import { isDemoHost, requestHost } from "@/lib/demo";
+
+const clerk = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ? clerkMiddleware() : null;
+
+export default function proxy(request: NextRequest, event: NextFetchEvent) {
+  const demo = isDemoHost(requestHost(request.headers), {
+    BOOR_DEMO: process.env.BOOR_DEMO,
+    DEMO_HOSTNAMES: process.env.DEMO_HOSTNAMES,
+  });
+  if (demo || !clerk) return NextResponse.next();
+  return clerk(request, event);
+}
 
 export const config = {
   matcher: [

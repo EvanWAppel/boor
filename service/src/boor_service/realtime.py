@@ -30,6 +30,7 @@ from fastapi import WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from boor_service import demo_mode
 from boor_service.auth.clerk import AuthError, ClerkVerifier
 from boor_service.db import repository
 from boor_service.db.models import (
@@ -205,6 +206,29 @@ def _presence_message(event: str, presence: Presence, roster: list[Presence]) ->
     }
 
 
+async def _clerk_user(db: AsyncSession, token: str, verifier: ClerkVerifier) -> User | None:
+    try:
+        identity = verifier.verify(token)
+        return await repository.sync_user(
+            db,
+            clerk_user_id=identity.clerk_user_id,
+            email=identity.email,
+            display_name=identity.display_name,
+        )
+    except (AuthError, ValueError):
+        return None
+
+
+async def _demo_guest(db: AsyncSession, token: str) -> User | None:
+    """A demo request's guest (PLAT-DEMO-01); Clerk is never consulted on the demo."""
+    from boor_service.db import demo
+
+    try:
+        return await demo.guest_user(db, token)
+    except (AuthError, demo.DemoFull):
+        return None
+
+
 async def _authorize(
     socket: WebSocketLike,
     session_id: uuid.UUID,
@@ -216,20 +240,11 @@ async def _authorize(
     if not token:
         await socket.close(code=WS_UNAUTHORIZED)
         return None
-    try:
-        identity = verifier.verify(token)
-    except AuthError:
-        await socket.close(code=WS_UNAUTHORIZED)
-        return None
-
-    try:
-        user = await repository.sync_user(
-            db,
-            clerk_user_id=identity.clerk_user_id,
-            email=identity.email,
-            display_name=identity.display_name,
-        )
-    except ValueError:
+    if demo_mode.active():
+        user = await _demo_guest(db, token)
+    else:
+        user = await _clerk_user(db, token, verifier)
+    if user is None:
         await socket.close(code=WS_UNAUTHORIZED)
         return None
 
