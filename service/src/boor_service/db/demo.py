@@ -25,7 +25,7 @@ import re
 import time
 from functools import lru_cache
 
-from sqlalchemy import NullPool, func, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -69,10 +69,13 @@ def engine() -> AsyncEngine:
     url = os.environ.get("DEMO_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not url:
         raise RuntimeError("DEMO_DATABASE_URL or DATABASE_URL must be set to serve the demo")
-    # NullPool: the demo holds no idle connections against the shared server.
+    # A small, bounded pool: demo traffic can never take the shared server's
+    # connections from the real host. Past the bound, demo requests wait, then fail.
     return create_async_engine(
         _normalize_url(url),
-        poolclass=NullPool,
+        pool_size=3,
+        max_overflow=2,
+        pool_timeout=5,
         connect_args={"server_settings": {"search_path": SCHEMA}},
     )
 
@@ -109,6 +112,11 @@ async def reset() -> None:
     async with engine().begin() as conn:
         await conn.execute(text(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE"))
         await conn.execute(text(f"CREATE SCHEMA {SCHEMA}"))
+        # Isolation rests on search_path; refuse to build anything if it isn't ours alone
+        # (e.g. a pooler that drops startup parameters).
+        schemas = (await conn.execute(text("SELECT current_schemas(false)"))).scalar()
+        if schemas != [SCHEMA]:
+            raise RuntimeError(f"demo engine search_path is {schemas}, expected [{SCHEMA!r}]")
         await conn.run_sync(Base.metadata.create_all)
     _state.built_at = time.monotonic()
     logger.info("demo schema %s reset", SCHEMA)
@@ -143,10 +151,12 @@ async def guest_user(session: AsyncSession, token: str | None) -> User:
     """
     gid = guest_id(token)
     clerk_user_id = GUEST_PREFIX + gid
+    by_id = select(User).where(User.clerk_user_id == clerk_user_id)
+    if user := await session.scalar(by_id):
+        return user
     # Serialize first sight of a guest, so parallel first requests seed once.
     await session.execute(select(func.pg_advisory_xact_lock(func.hashtext(clerk_user_id))))
-    user = await session.scalar(select(User).where(User.clerk_user_id == clerk_user_id))
-    if user is not None:
+    if user := await session.scalar(by_id):
         return user
     guests = await session.scalar(
         select(func.count()).select_from(User).where(User.clerk_user_id.startswith(GUEST_PREFIX))

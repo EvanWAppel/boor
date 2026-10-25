@@ -17,7 +17,7 @@ from typing import Any
 import anthropic
 import httpx
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import AsyncAdaptedQueuePool, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from boor_service import demo_mode, guided_scenes
@@ -351,3 +351,45 @@ async def test_sandbox_resets_once_it_is_older_than_the_period(
     monkeypatch.setenv("DEMO_RESET_HOURS", "0")
     after = (await demo_client.get("/campaigns", headers=demo_headers(token))).json()[0]["id"]
     assert after != before
+
+
+async def test_local_switch_serves_the_demo_without_any_clerk_config(
+    demo_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, real_db: RealDbProbe
+) -> None:
+    from boor_service.api import app
+    from boor_service.auth.clerk import verifier_from_env
+    from boor_service.auth.dependencies import get_verifier
+
+    monkeypatch.setenv("BOOR_DEMO", "1")
+    monkeypatch.delenv("CLERK_ISSUER", raising=False)
+    monkeypatch.delenv("CLERK_JWKS_URL", raising=False)
+    verifier_from_env.cache_clear()
+    app.dependency_overrides.pop(get_verifier, None)
+    try:
+        me = await demo_client.get("/me", headers={"Authorization": f"Bearer {guest_token()}"})
+    finally:
+        verifier_from_env.cache_clear()
+    assert me.status_code == 200, me.text
+    assert real_db.uses == 0
+
+
+async def test_real_host_websocket_rejects_a_guest_token(
+    session: AsyncSession, clerk_verifier: Any
+) -> None:
+    ws = FakeWebSocket(token=guest_token())
+    await handle_connection(ws, uuid.uuid4(), session, clerk_verifier, SessionHub())
+    assert ws.close_code == WS_UNAUTHORIZED
+
+
+async def test_demo_engine_is_locked_to_the_demo_schema(
+    demo_client: httpx.AsyncClient,  # noqa: ARG001 — configures the demo database
+) -> None:
+    await demo_db.reset()
+    async with demo_db.engine().connect() as conn:
+        assert (await conn.execute(text("select current_schemas(false)"))).scalar() == [
+            demo_db.SCHEMA
+        ]
+    # Bounded, so demo traffic can't starve the real host of connections.
+    pool = demo_db.engine().pool
+    assert isinstance(pool, AsyncAdaptedQueuePool)
+    assert pool.size() + pool._max_overflow <= 5

@@ -267,4 +267,7 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
     Rejected: a separate Railway database (more deploy work for disposable data).
   - *Limits:* `DEMO_MAX_GUESTS` (500) sandboxes between resets; new campaigns, invites
     and invite acceptance are refused on the demo; stand-in turns return 503; the AI
-    guide and recaps act as off. Emails are `guest-<hex>@demo.invalid`.
+    guide and recaps act as off. Emails are `guest-<hex>@demo.invalid`. The demo engine
+    has a bounded pool (3 + 2 overflow, 5s wait) so demo traffic can't take the shared
+    Postgres server's connections from the real host; it refuses to build the schema
+    unless `search_path` is exactly `boor_demo`.

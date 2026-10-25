@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.requests import Request
 from sqlalchemy import select
@@ -40,8 +41,19 @@ from boor_service.db.session import get_session
 logger = logging.getLogger(__name__)
 
 
+def _clerk_is_not_used_on_the_demo(_token: str) -> Any:
+    raise jwt.InvalidTokenError("Clerk tokens are not accepted on the demo")
+
+
+#: Demo requests never consult Clerk (and need no Clerk config, e.g. ``BOOR_DEMO=1``
+#: locally); this verifier refuses every token, as a backstop.
+_DEMO_VERIFIER = ClerkVerifier(issuer="demo", signing_key_resolver=_clerk_is_not_used_on_the_demo)
+
+
 def get_verifier() -> ClerkVerifier:
     """The process-wide Clerk verifier (dependency seam; overridable in tests)."""
+    if demo_mode.active():
+        return _DEMO_VERIFIER
     return verifier_from_env()
 
 
