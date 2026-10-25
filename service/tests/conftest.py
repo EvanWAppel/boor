@@ -280,3 +280,64 @@ def fake_recap_writer(monkeypatch: pytest.MonkeyPatch) -> FakeRecapWriter:
     monkeypatch.setattr(recaps, "get_client", lambda: object())
     monkeypatch.setattr(recaps, "write", _write)
     return fake
+
+
+# --- PLAT-DEMO-01: demo-host fixtures ----------------------------------------
+
+#: The public demo's web origin (the service's default demo origin).
+DEMO_ORIGIN = "https://boor-demo.evanappel.me"
+
+
+class RealDbProbe:
+    """Counts how often the *real* (non-demo) database was opened."""
+
+    def __init__(self) -> None:
+        self.uses = 0
+
+
+@pytest.fixture
+def real_db() -> RealDbProbe:
+    return RealDbProbe()
+
+
+@pytest_asyncio.fixture
+async def demo_client(
+    session: AsyncSession,  # noqa: ARG001 — builds the fresh public (real) schema
+    _postgres_container: PostgresContainer,
+    clerk_verifier: ClerkVerifier,
+    real_db: RealDbProbe,
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncIterator[httpx.AsyncClient]:
+    """An httpx client over the app with *no* session overrides, so routing is real.
+
+    The real database is the test's public schema (``session`` created it), opened
+    through a probe that counts every use; the demo database is the same container
+    under its own ``boor_demo`` schema. Clerk uses the local-keypair verifier.
+    """
+    from boor_service.db import demo as demo_db
+    from boor_service.db import session as db_session
+
+    url = _postgres_container.get_connection_url()
+    real_engine = create_async_engine(url, poolclass=NullPool)
+    real_maker = async_sessionmaker(real_engine, expire_on_commit=False)
+
+    def _probed_real_maker() -> async_sessionmaker:
+        real_db.uses += 1
+        return real_maker
+
+    monkeypatch.delenv("BOOR_DEMO", raising=False)
+    monkeypatch.delenv("DEMO_ORIGINS", raising=False)
+    monkeypatch.delenv("DEMO_MAX_GUESTS", raising=False)
+    monkeypatch.delenv("DEMO_RESET_HOURS", raising=False)
+    monkeypatch.setenv("DEMO_DATABASE_URL", url)
+    monkeypatch.setattr(db_session, "_real_sessionmaker", _probed_real_maker)
+    demo_db.forget()
+    app.dependency_overrides[get_verifier] = lambda: clerk_verifier
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
+        await demo_db.dispose()
+        await real_engine.dispose()

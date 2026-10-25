@@ -23,7 +23,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from boor_service import guided, guided_scenes
+from boor_service import demo_mode, guided, guided_scenes
 from boor_service.ai.adjudicator import (
     DEFAULT_MODEL,
     Adjudication,
@@ -56,7 +56,12 @@ def cooldown_remaining(state: dict[str, Any]) -> int:
 
 
 def get_client() -> SupportsBetaMessages | None:
-    """The model client, or ``None`` when AI adjudication is not enabled."""
+    """The model client, or ``None`` when AI adjudication is not enabled.
+
+    Always ``None`` on a demo request (PLAT-DEMO-01): the host decides instead.
+    """
+    if demo_mode.active():
+        return None
     if os.environ.get("ENABLE_AI_ADJUDICATION") != "1" or not os.environ.get("ANTHROPIC_API_KEY"):
         return None
     return cast(SupportsBetaMessages, anthropic.Anthropic(timeout=20, max_retries=0))

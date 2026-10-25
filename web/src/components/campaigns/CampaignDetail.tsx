@@ -16,6 +16,7 @@ import type {
   MembershipRole,
   Recap,
 } from "@/lib/types";
+import { useAuthSession } from "@/lib/auth";
 import { useApi } from "@/lib/useApi";
 
 import {
@@ -82,6 +83,8 @@ export default function CampaignDetail({ campaignId }: { campaignId: string }) {
   }, [api, campaignId]);
 
   const isDm = campaign?.my_role === "dm";
+  // Invites are off on the demo (no real emails in the sandbox).
+  const { isDemo } = useAuthSession();
 
   async function startSession() {
     if (!api) return;
@@ -228,7 +231,7 @@ export default function CampaignDetail({ campaignId }: { campaignId: string }) {
             </li>
           ))}
         </ul>
-        {isDm && <InviteForm campaignId={campaignId} />}
+        {isDm && !isDemo && <InviteForm campaignId={campaignId} />}
       </section>
 
       {/* Characters */}

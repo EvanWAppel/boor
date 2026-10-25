@@ -5,6 +5,10 @@ the scheme to the asyncpg driver and drop libpq-only query params (e.g.
 ``sslmode``) that asyncpg does not accept, raising loudly if the URL is missing —
 per project convention we do not hide configuration errors.
 
+Demo requests (PLAT-DEMO-01, :mod:`boor_service.demo_mode`) are routed to the
+separate demo schema (:mod:`boor_service.db.demo`) here, at the lowest layer, so no
+code path in a demo request can open the real engine.
+
 Tests do **not** use this module; they build their own engine against an ephemeral
 testcontainers Postgres (see ``tests/conftest.py``).
 """
@@ -22,6 +26,8 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+
+from boor_service import demo_mode
 
 # libpq params that psycopg understands but asyncpg does not; stripped from the URL.
 _LIBPQ_ONLY_PARAMS = frozenset({"sslmode", "channel_binding"})
@@ -60,9 +66,17 @@ def get_engine() -> AsyncEngine:
 
 
 @lru_cache(maxsize=1)
-def get_sessionmaker() -> async_sessionmaker:
-    """Process-wide async session factory."""
+def _real_sessionmaker() -> async_sessionmaker:
     return async_sessionmaker(get_engine(), expire_on_commit=False)
+
+
+def get_sessionmaker() -> async_sessionmaker:
+    """The session factory for this request: the demo schema's for a demo request."""
+    if demo_mode.active():
+        from boor_service.db import demo
+
+        return demo.sessionmaker()
+    return _real_sessionmaker()
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
@@ -72,6 +86,10 @@ async def get_session() -> AsyncIterator[AsyncSession]:
     functions only ``flush``; this owns the transaction boundary so a handler's
     writes land exactly when the request succeeds.
     """
+    if demo_mode.active():
+        from boor_service.db import demo
+
+        await demo.ensure_ready()
     maker = get_sessionmaker()
     async with maker() as session:
         try:

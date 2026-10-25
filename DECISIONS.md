@@ -247,3 +247,24 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
   - *Input:* only the character's scoped timeline (DATA-07) plus persona and standing
     instructions, as quoted data. Model `claude-opus-5` at medium effort, structured output,
     server-side refusal fallback; `RECAP_MODEL` overrides.
+- **PLAT-DEMO-01 public demo at `boor-demo.evanappel.me` — chosen by Evan 2026-10-25 (first two bullets); the rest drafted, awaiting confirmation:**
+  - *How the service knows a request is a demo request:* by its `Origin` header. The
+    browser calls `service` directly from the `web` page, so the service never sees the
+    demo hostname as its own `Host`; it does see it as `Origin` on every cross-origin
+    fetch and WebSocket handshake. Demo mode only lowers privilege, so a spoofed
+    `Origin` reaches the sandbox and nothing more. _system wires one hostname, to `web`.
+    Rejected: a second service hostname (`boor-demo-api…`, two hostnames to wire) and
+    proxying the API through `web` (WebSocket proxying in Next standalone is uncertain).
+  - *Sandbox:* per visitor. Each browser holds a random guest id (`demo.<32 hex>`); the
+    service seeds that guest's own campaign (guest hosts it, owns Thora, a session is
+    open) on first sight. Rejected: one shared campaign (concurrent visitors would
+    trample the same guided session).
+  - *Where demo data lives:* a `boor_demo` Postgres schema on the same server (or
+    `DEMO_DATABASE_URL`), reached by its own engine whose `search_path` is `boor_demo`
+    only. Routing happens in `db/session.py`, so nothing in a demo request can open the
+    real engine. The schema is built from ORM metadata on first demo use (no prod DB
+    change until then) and rebuilt every `DEMO_RESET_HOURS` (24) and on restart.
+    Rejected: a separate Railway database (more deploy work for disposable data).
+  - *Limits:* `DEMO_MAX_GUESTS` (500) sandboxes between resets; new campaigns, invites
+    and invite acceptance are refused on the demo; stand-in turns return 503; the AI
+    guide and recaps act as off. Emails are `guest-<hex>@demo.invalid`.

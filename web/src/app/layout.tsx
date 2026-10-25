@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 import Link from "next/link";
 import {
   ClerkProvider,
@@ -8,10 +9,12 @@ import {
   SignUpButton,
   UserButton,
 } from "@clerk/nextjs";
+import { ClerkAuthSession, DemoAuthSession, DevAuthSession } from "@/lib/auth";
+import { isDemoHost, requestHost } from "@/lib/demo";
 import "./globals.css";
 
 // Inlined at build time; when absent (CI's `pnpm build`) we render the plain shell
-// without Clerk, matching the dev-token seam in src/lib/auth.ts.
+// without Clerk, matching the dev-token seam in src/lib/auth.tsx.
 const CLERK_ENABLED = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 const geistSans = Geist({
@@ -53,20 +56,49 @@ function AuthHeader() {
   );
 }
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+/** The public demo's header (PLAT-DEMO-01): no sign-in, and say plainly what this is. */
+function DemoHeader() {
+  return (
+    <header className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-6 py-3 dark:border-amber-900 dark:bg-amber-950/40">
+      <Link
+        href="/"
+        className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50"
+      >
+        boor <span className="text-sm font-normal text-amber-700 dark:text-amber-400">demo</span>
+      </Link>
+      <p className="text-sm text-amber-800 dark:text-amber-300">
+        A private sandbox for this browser. Sample data, AI features off, wiped daily.
+      </p>
+    </header>
+  );
+}
+
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // Runtime env + request host: the same deploy serves the demo on its hostname.
+  const demo = isDemoHost(requestHost(await headers()), {
+    BOOR_DEMO: process.env.BOOR_DEMO,
+    DEMO_HOSTNAMES: process.env.DEMO_HOSTNAMES,
+  });
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        {CLERK_ENABLED ? (
-          <ClerkProvider>
-            <AuthHeader />
+        {demo ? (
+          <DemoAuthSession>
+            <DemoHeader />
             {children}
+          </DemoAuthSession>
+        ) : CLERK_ENABLED ? (
+          <ClerkProvider>
+            <ClerkAuthSession>
+              <AuthHeader />
+              {children}
+            </ClerkAuthSession>
           </ClerkProvider>
         ) : (
-          children
+          <DevAuthSession>{children}</DevAuthSession>
         )}
       </body>
     </html>

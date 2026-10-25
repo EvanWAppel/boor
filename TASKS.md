@@ -182,7 +182,7 @@ data; Next.js is pure UI over HTTP/WS. Realtime = self-hosted WS. Auth = Clerk.
 Tasks handed to this repo by `~/Documents/_system` (see its `CLAUDE.md`). Do them here, in
 this project's own session. When one is done, note it in `DECISIONS.md` if it involved a trade-off.
 
-- [ ] **PLAT-DEMO-01 — Public demo at `boor-demo.evanappel.me`** _(handed off 2026-10-25)_
+- [x] **PLAT-DEMO-01 — Public demo at `boor-demo.evanappel.me`** _(handed off 2026-10-25; built 2026-10-25, see DECISIONS.md and DEPLOY.md "Public demo")_
   - **Why:** _system D-031/D-032 (Evan, 2026-10-25): every app gets a public demo anyone can use
     without logging in. Shape: **hostname mode**, like homestar: the same deploy serves the demo when
     the request's host is `boor-demo.evanappel.me`.

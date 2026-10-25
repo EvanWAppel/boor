@@ -53,7 +53,7 @@ class SeedResult:
     session: GameSession
 
 
-def _thora_sheet() -> dict:
+def thora_sheet() -> dict:
     """A level-5 protector-fighter, as a persisted sheet blob."""
     return CharacterSheet(
         name="Thora",
@@ -103,7 +103,7 @@ async def seed_demo(session: AsyncSession) -> SeedResult:
     player2 = await _add_player(session, campaign=campaign, dm=dm, n=2)
 
     thora = await create_character(
-        session, campaign=campaign, name="Thora", level=5, sheet=_thora_sheet(), player=player1
+        session, campaign=campaign, name="Thora", level=5, sheet=thora_sheet(), player=player1
     )
     await set_personality_profile(
         session,

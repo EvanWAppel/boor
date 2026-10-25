@@ -25,6 +25,7 @@ from fastapi.requests import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from boor_service import demo_mode
 from boor_service.auth.clerk import AuthError, ClerkVerifier, verifier_from_env
 from boor_service.db import repository
 from boor_service.db.models import (
@@ -66,8 +67,14 @@ async def get_current_user(
     session: SessionDep,
     verifier: VerifierDep,
 ) -> User:
-    """Verify the request's Clerk token and return the mirrored local user."""
+    """Verify the request's Clerk token and return the mirrored local user.
+
+    On a demo request Clerk is never consulted: the token must be a guest token,
+    and the user is that guest in the demo schema (PLAT-DEMO-01).
+    """
     token = _bearer_token(request)
+    if demo_mode.active():
+        return await _demo_guest(session, token)
     try:
         identity = verifier.verify(token)
     except AuthError as exc:
@@ -87,6 +94,23 @@ async def get_current_user(
         # e.g. the token carried no email claim, so we can't create the mirror.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
+        ) from exc
+
+
+async def _demo_guest(session: AsyncSession, token: str) -> User:
+    from boor_service.db import demo
+
+    try:
+        return await demo.guest_user(session, token)
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    except demo.DemoFull as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from exc
 
 

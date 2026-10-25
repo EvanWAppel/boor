@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from boor_service import guided, mechanics, realtime, recaps
+from boor_service import demo_mode, guided, mechanics, realtime, recaps
 from boor_service.ai.actions import ActionType
 from boor_service.ai.guardrails import RedLine, RedLineKind
 from boor_service.ai.table import router as standin_router
@@ -80,6 +80,9 @@ _cors_origins = [
     for origin in os.environ.get("CORS_ALLOW_ORIGINS", "http://localhost:3000").split(",")
     if origin.strip()
 ]
+# The public demo's web origin is always allowed (PLAT-DEMO-01); its requests are
+# sandboxed by DemoOriginMiddleware, so allowing it grants nothing real.
+_cors_origins += [o for o in demo_mode.demo_origins() if o not in _cors_origins]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -87,6 +90,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Added last so it runs outermost: the demo flag is set before anything else runs.
+app.add_middleware(demo_mode.DemoOriginMiddleware)
 
 
 @app.exception_handler(ValueError)
@@ -405,7 +410,10 @@ async def me(user: CurrentUser) -> MeOut:
     return MeOut(id=user.id, email=user.email, display_name=user.display_name)
 
 
-@app.post("/campaigns", response_model=CampaignOut, status_code=201)
+_NOT_IN_DEMO = [Depends(demo_mode.not_in_demo)]
+
+
+@app.post("/campaigns", response_model=CampaignOut, status_code=201, dependencies=_NOT_IN_DEMO)
 async def create_campaign(
     body: CampaignCreateIn, user: CurrentUser, session: SessionDep
 ) -> CampaignOut:
@@ -462,7 +470,12 @@ async def remove_member(
 # --- invites (AUTH-02) -----------------------------------------------------
 
 
-@app.post("/campaigns/{campaign_id}/invites", response_model=InviteOut, status_code=201)
+@app.post(
+    "/campaigns/{campaign_id}/invites",
+    response_model=InviteOut,
+    status_code=201,
+    dependencies=_NOT_IN_DEMO,
+)
 async def create_invite(
     campaign_id: uuid.UUID,
     body: InviteCreateIn,
@@ -487,7 +500,7 @@ async def create_invite(
     )
 
 
-@app.post("/invites/{token}/accept", response_model=AcceptOut)
+@app.post("/invites/{token}/accept", response_model=AcceptOut, dependencies=_NOT_IN_DEMO)
 async def accept_invite(token: str, user: CurrentUser, session: SessionDep) -> AcceptOut:
     """Redeem an invite token, joining the caller to the campaign."""
     membership = await repository.accept_invite(session, token=token, user=user)

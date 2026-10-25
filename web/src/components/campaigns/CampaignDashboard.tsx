@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { useAuthSession } from "@/lib/auth";
 import type { Campaign, Me } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 
@@ -14,6 +15,8 @@ import { Button, Card, ErrorText, Page, RoleBadge, SectionHeader, TextInput } fr
 
 export default function CampaignDashboard({ me }: { me: Me }) {
   const api = useApi();
+  // The demo guest has one sandbox campaign; the service refuses new ones.
+  const { isDemo } = useAuthSession();
   const [campaigns, setCampaigns] = useState<Campaign[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -92,21 +95,23 @@ export default function CampaignDashboard({ me }: { me: Me }) {
         </ul>
       )}
 
-      <div className="mt-8">
-        <SectionHeader title="Start a new campaign" />
-        <form onSubmit={createCampaign} className="flex gap-2">
-          <TextInput
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Campaign name"
-            className="flex-1"
-            aria-label="Campaign name"
-          />
-          <Button type="submit" disabled={creating || !name.trim()}>
-            {creating ? "Creating…" : "Create"}
-          </Button>
-        </form>
-      </div>
+      {!isDemo && (
+        <div className="mt-8">
+          <SectionHeader title="Start a new campaign" />
+          <form onSubmit={createCampaign} className="flex gap-2">
+            <TextInput
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Campaign name"
+              className="flex-1"
+              aria-label="Campaign name"
+            />
+            <Button type="submit" disabled={creating || !name.trim()}>
+              {creating ? "Creating…" : "Create"}
+            </Button>
+          </form>
+        </div>
+      )}
     </Page>
   );
 }
