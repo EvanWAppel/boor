@@ -37,3 +37,13 @@ spend_cap = "yes"             # $50/month workspace cap + $20 email alert
 
 [platform]
 done = ["PLAT-DEMO-01"]
+
+[commands]
+dev = "cd web && npm run dev"
+test = "cd web && npm run test"
+lint = "cd web && npm run lint"
+
+[meta]
+description = "AI-assisted D&D VTT (AI plays absent players)"
+language = "node"
+tags = ["portfolio"]
