@@ -271,7 +271,11 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
     has a bounded pool (3 + 2 overflow, 5s wait) so demo traffic can't take the shared
     Postgres server's connections from the real host; it refuses to build the schema
     unless `search_path` is exactly `boor_demo`.
-- **Fleet join (minderbinder daemon on satellite) — chosen by Evan 2026-11-22 (agents, max_minutes, test speedup); command details drafted, awaiting confirmation:**
+- **Fleet join (minderbinder daemon on satellite) — confirmed by Evan 2026-11-22:**
+  - *`[commands] test` is the full gate:* ruff, ty and pytest for `service/`, then eslint,
+    `tsc --noEmit` and `node --test` for `web/`. The daemon reads only `test`, so a gate that
+    was just the tests would let it open PRs that fail CI on lint or type errors. Not included:
+    `next build`, which CI still covers.
   - *`[fleet]`:* `agents = ["claude", "codex"]`, `sonnet`, `max_minutes = 45`, the same
     values every fleet repo uses. Codex's sandbox has no network, but `[commands] setup` runs
     as plain `sh -c` outside it (minderbinder `workspace.ts`), so installs still work. Codex

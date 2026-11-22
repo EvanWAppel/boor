@@ -212,7 +212,7 @@ this project's own session. When one is done, note it in `DECISIONS.md` if it in
 
 - [x] **PLAT-FLEET-01 — Join the minderbinder fleet** _(2026-11-22; see DECISIONS.md "Fleet join")_
   - `[fleet]` + `[commands]` in `project.toml`. Setup and test proven on satellite in a fresh clone,
-    with the daemon's sandboxed env: setup takes 1m05s; test is service pytest plus web `node --test`.
+    with the daemon's sandboxed env. `test` covers lint, typecheck and tests for both halves.
   - The test Postgres skips durability, so pytest on satellite drops from 13.5 to 3.4 min.
   - After merge: the `fleet` GitHub topic, plus `syskit.jira.join_fleet("boor")` for the EA
     component and epic.
