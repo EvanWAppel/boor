@@ -209,3 +209,10 @@ this project's own session. When one is done, note it in `DECISIONS.md` if it in
   - **Done when:** tests green, merged via PR. In `project.toml`: `[demo] status = "planned"`,
     `url = "https://boor-demo.evanappel.me"`, and `"PLAT-DEMO-01"` in `[platform] done`. Then tell Evan, who tells
     _system to wire the hostname; _system flips `status` to `"live"` after a curl check.
+
+- [x] **PLAT-FLEET-01 — Join the minderbinder fleet** _(2026-11-22; see DECISIONS.md "Fleet join")_
+  - `[fleet]` + `[commands]` in `project.toml`. Setup and test proven on satellite in a fresh clone,
+    with the daemon's sandboxed env: setup takes 1m05s; test is service pytest plus web `node --test`.
+  - The test Postgres skips durability, so pytest on satellite drops from 13.5 to 3.4 min.
+  - After merge: the `fleet` GitHub topic, plus `syskit.jira.join_fleet("boor")` for the EA
+    component and epic.

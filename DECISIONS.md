@@ -271,3 +271,18 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
     has a bounded pool (3 + 2 overflow, 5s wait) so demo traffic can't take the shared
     Postgres server's connections from the real host; it refuses to build the schema
     unless `search_path` is exactly `boor_demo`.
+- **Fleet join (minderbinder daemon on satellite) — chosen by Evan 2026-11-22 (agents, max_minutes, test speedup); command details drafted, awaiting confirmation:**
+  - *`[fleet]`:* `agents = ["claude", "codex"]`, `sonnet`, `max_minutes = 45`, the same
+    values every fleet repo uses. Codex's sandbox has no network, but `[commands] setup` runs
+    as plain `sh -c` outside it (minderbinder `workspace.ts`), so installs still work. Codex
+    just can't add a new dependency mid-ticket. Rejected: claude only (no cross-vendor review).
+  - *pnpm through corepack:* `web/` is a pnpm project (`packageManager: pnpm@11.5.0`) and
+    satellite has no global pnpm, so the commands call `corepack pnpm`. That fetches the
+    pinned version into the user cache, no sudo needed. Rejected: installing pnpm globally on
+    the box (another machine-level step), and switching `web/` to npm (forks the CI lockfile).
+  - *Test Postgres skips durability:* the testcontainers Postgres starts with `fsync`,
+    `synchronous_commit` and `full_page_writes` off. Satellite's 5400rpm HDD made the suite
+    take 13.5 min (CI takes 2.5), against the daemon's 20-min test timeout. With them off it takes
+    3.4 min. The data is thrown away anyway, so nothing is lost. Rejected: leaving the timeout
+    headroom thin as the suite grows. Rejected: a tmpfs data dir (more container plumbing for
+    little extra gain).

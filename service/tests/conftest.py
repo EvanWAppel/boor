@@ -51,8 +51,15 @@ def client() -> TestClient:
 
 @pytest.fixture(scope="session")
 def _postgres_container() -> Iterator[PostgresContainer]:
-    """One ephemeral Postgres for the whole test session (testcontainers)."""
-    with PostgresContainer("postgres:16-alpine", driver="asyncpg") as pg:
+    """One ephemeral Postgres for the whole test session (testcontainers).
+
+    Durability is off: the data is thrown away, and fsyncs on every per-test
+    schema rebuild made the suite ~5x slower on the fleet box's HDD.
+    """
+    container = PostgresContainer("postgres:16-alpine", driver="asyncpg").with_command(
+        "postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off"
+    )
+    with container as pg:
         yield pg
 
 
