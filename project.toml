@@ -38,10 +38,21 @@ spend_cap = "yes"             # $50/month workspace cap + $20 email alert
 [platform]
 done = ["PLAT-DEMO-01"]
 
+[fleet]                       # joined 2026-11-22 (_system D-051); needs the `fleet` topic too (added after merge)
+component = "boor"
+agents = ["claude", "codex"]
+default_model = "sonnet"
+default_branch = "main"
+max_minutes = 45
+
 [commands]
-dev = "cd web && npm run dev"
-test = "cd web && npm run test"
-lint = "cd web && npm run lint"
+# pnpm comes from corepack (packageManager in web/package.json); satellite has no global pnpm.
+# Setup runs outside codex's network-off sandbox, so installs reach the registries.
+# test is the fleet daemon's only gate, so it lints and typechecks both halves too (as CI does).
+dev = "cd web && corepack pnpm dev"
+setup = "cd web && corepack pnpm install --frozen-lockfile && cd ../service && uv sync --dev"
+test = "(cd service && uv run ruff check src/ tests/ && uv run ty check src/ tests/ && uv run pytest) && (cd web && corepack pnpm lint && corepack pnpm exec next typegen && corepack pnpm exec tsc --noEmit && corepack pnpm test)"
+lint = "(cd service && uv run ruff check src/ tests/ && uv run ty check src/ tests/) && (cd web && corepack pnpm lint && corepack pnpm exec next typegen && corepack pnpm exec tsc --noEmit)"
 
 [meta]
 description = "AI-assisted D&D VTT (AI plays absent players)"

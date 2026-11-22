@@ -271,3 +271,25 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
     has a bounded pool (3 + 2 overflow, 5s wait) so demo traffic can't take the shared
     Postgres server's connections from the real host; it refuses to build the schema
     unless `search_path` is exactly `boor_demo`.
+- **Fleet join (minderbinder daemon on satellite) — confirmed by Evan 2026-11-22:**
+  - *`[commands] test` is the full gate:* ruff, ty and pytest for `service/`, then eslint,
+    `next typegen` + `tsc --noEmit` and `node --test` for `web/`. typegen comes first because a fresh
+    worktree has no `.next/`, so Next's global `PageProps`/`LayoutProps` types would be missing. The daemon reads only `test`, so a gate that
+    was just the tests would let it open PRs that fail CI on lint or type errors. Not included:
+    `next build`, which CI still covers.
+  - *`[fleet]`:* `agents = ["claude", "codex"]`, `sonnet`, `max_minutes = 45`, the same
+    values every fleet repo uses. Codex's sandbox has no network, but `[commands] setup` runs
+    as plain `sh -c` outside it (minderbinder `workspace.ts`), so installs still work. Codex
+    just can't add a new dependency mid-ticket. Rejected: claude only (no cross-vendor review).
+  - *pnpm through corepack:* `web/` is a pnpm project (`packageManager: pnpm@11.5.0`) and
+    satellite has no global pnpm, so the commands call `corepack pnpm`. That fetches the
+    pinned version into the user cache, no sudo needed. Rejected: installing pnpm globally on
+    the box (another machine-level step), and switching `web/` to npm (forks the CI lockfile).
+    Known box dependency: Node 25+ stops bundling corepack, so a Node major upgrade on
+    satellite needs pnpm installed another way first.
+  - *Test Postgres skips durability:* the testcontainers Postgres starts with `fsync`,
+    `synchronous_commit` and `full_page_writes` off. Satellite's 5400rpm HDD made the suite
+    take 13.5 min (CI takes 2.5), against the daemon's 20-min test timeout. With them off it takes
+    3.4 min. The data is thrown away anyway, so nothing is lost. Rejected: leaving the timeout
+    headroom thin as the suite grows. Rejected: a tmpfs data dir (more container plumbing for
+    little extra gain).
