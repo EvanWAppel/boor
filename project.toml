@@ -38,7 +38,7 @@ spend_cap = "yes"             # $50/month workspace cap + $20 email alert
 [platform]
 done = ["PLAT-DEMO-01"]
 
-[fleet]                       # joined 2026-11-22 (_system D-051); also has the `fleet` topic
+[fleet]                       # joined 2026-11-22 (_system D-051); needs the `fleet` topic too (added after merge)
 component = "boor"
 agents = ["claude", "codex"]
 default_model = "sonnet"

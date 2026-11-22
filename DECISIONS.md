@@ -280,6 +280,8 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
     satellite has no global pnpm, so the commands call `corepack pnpm`. That fetches the
     pinned version into the user cache, no sudo needed. Rejected: installing pnpm globally on
     the box (another machine-level step), and switching `web/` to npm (forks the CI lockfile).
+    Known box dependency: Node 25+ stops bundling corepack, so a Node major upgrade on
+    satellite needs pnpm installed another way first.
   - *Test Postgres skips durability:* the testcontainers Postgres starts with `fsync`,
     `synchronous_commit` and `full_page_writes` off. Satellite's 5400rpm HDD made the suite
     take 13.5 min (CI takes 2.5), against the daemon's 20-min test timeout. With them off it takes
