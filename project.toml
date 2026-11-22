@@ -51,8 +51,8 @@ max_minutes = 45
 # test is the fleet daemon's only gate, so it lints and typechecks both halves too (as CI does).
 dev = "cd web && corepack pnpm dev"
 setup = "cd web && corepack pnpm install --frozen-lockfile && cd ../service && uv sync --dev"
-test = "(cd service && uv run ruff check src/ tests/ && uv run ty check src/ tests/ && uv run pytest) && (cd web && corepack pnpm lint && corepack pnpm exec tsc --noEmit && corepack pnpm test)"
-lint = "(cd service && uv run ruff check src/ tests/ && uv run ty check src/ tests/) && (cd web && corepack pnpm lint && corepack pnpm exec tsc --noEmit)"
+test = "(cd service && uv run ruff check src/ tests/ && uv run ty check src/ tests/ && uv run pytest) && (cd web && corepack pnpm lint && corepack pnpm exec next typegen && corepack pnpm exec tsc --noEmit && corepack pnpm test)"
+lint = "(cd service && uv run ruff check src/ tests/ && uv run ty check src/ tests/) && (cd web && corepack pnpm lint && corepack pnpm exec next typegen && corepack pnpm exec tsc --noEmit)"
 
 [meta]
 description = "AI-assisted D&D VTT (AI plays absent players)"

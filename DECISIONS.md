@@ -273,7 +273,8 @@ start at v5. The v1–v4 test suites are pinned to the legacy version via an aut
     unless `search_path` is exactly `boor_demo`.
 - **Fleet join (minderbinder daemon on satellite) — confirmed by Evan 2026-11-22:**
   - *`[commands] test` is the full gate:* ruff, ty and pytest for `service/`, then eslint,
-    `tsc --noEmit` and `node --test` for `web/`. The daemon reads only `test`, so a gate that
+    `next typegen` + `tsc --noEmit` and `node --test` for `web/`. typegen comes first because a fresh
+    worktree has no `.next/`, so Next's global `PageProps`/`LayoutProps` types would be missing. The daemon reads only `test`, so a gate that
     was just the tests would let it open PRs that fail CI on lint or type errors. Not included:
     `next build`, which CI still covers.
   - *`[fleet]`:* `agents = ["claude", "codex"]`, `sonnet`, `max_minutes = 45`, the same
